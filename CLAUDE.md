@@ -64,7 +64,7 @@ When the user provides a source file to process, or ask to 'ingest new raw notes
 2. Read the source files that have not been ingested yet, from `raw/`.
 3. Source files may contain links to attachments (for example, in the `_resource` directory); always read the attachments as well.
 4. Transcribe attachments if they are images or PDFs (e.g., handwritten notes, whiteboard photos) using `mcp__claude_ai_Atlassian__fetch` or a similar tool;.
-5. Save transcriptions as Markdown with YAML frontmatter to a `scanned/` in the directory where you read the source note and make sure the YAML frontmatter of the Markdown file links back to the original source note.
+5. Save transcriptions as Markdown with YAML frontmatter to a `transcribed/` in the directory where you read the source note and make sure the YAML frontmatter of the Markdown file links back to the original source note.
 6. Transcripts from meetings in `raw/transcripts` may be in VTT format. Make sure the `.vtt` are prefix with `YYYY-mm-dd` of their `mtime` and rewrite them to a proper Markdown file and store the `.md` file next to the `.vtt` file (same name, different extension). Use the tags, like speaker tags, to make it clear who said what. Subsequently ingest the Markdown file.
 7. Emails in `raw/emails/` may be in `.eml` format. Convert these to Markdown using `scripts/eml_to_md.py` for that (use `scripts/eml_to_md.py --help` to find out how the tool works).
 8. Render the email body as Markdown; preserve quoted reply threads with `>` blockquotes. Subsequently ingest the `.md` file.
