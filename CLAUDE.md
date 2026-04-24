@@ -126,7 +126,7 @@ When the user asks a question:
 2. Use `mcp__plugin_qmd_qmd__get` or `mcp__plugin_qmd_qmd__multi_get` to retrieve specific documents identified in step 1.
 3. If QMD returns no results, fall back to reading the relevant `wiki/<type>/_index.md` directly, or `wiki/index.md` for top-level navigation.
 4. Synthesize an answer with citations (`[[wiki/decisions/title]]`, `[[wiki/systems/name]]`, etc.).
-5. If the answer is a valuable artifact (comparison, analysis, non-obvious connection), file it as a new wiki page in `wiki/discussions` and update the index.
+5. If the answer seems to be a valuable artifact (like an analysis, a full recap of knowledge, a comparison, or some non-obvious connection), propose to file it as a new wiki page in `wiki/discussions` and update the index.
 ### Action: health check (or lint)
 
 When the user asks for a health check:
