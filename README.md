@@ -11,22 +11,23 @@ The primary goal is **efficient decision intelligence**: understanding why decis
 ## In a nutshell
 
 Access to the knowledge base is as follows:
-- user produces raw notes and stores them in the `raw/notes` directory, or
-- user uses the Obsidian Web Clipper to store notes in `raw/clips`, or
-- user stores `.vtt` meeting transcripts in `raw/transcripts`, or
-- user drags `.eml` emails to `raw/emails`, or
-- user stored handwritten notes or scanned pages (PDF, JPG) in `raw/scans`
-- user asks to ingest (new) raw notes
-- LLM ingests raw notes and updates all relevant wiki-pages in `wiki/`
-- LLM updates QMD (semantic database), after user confirmation
-- user asks a high-level question
-- LLM queries QMD (with the QMD skill) for relevant page links
-- LLM processes suggested pages and produces answer to user
-- user may ask for a health check
-- LLM performs health check on wiki
+- **create and collect notes** 
+	- user produces raw notes and stores them in the `raw/notes` directory, or
+	- user uses the Obsidian Web Clipper to store notes in `raw/clips`, or
+	- user stores `.vtt` meeting transcripts in `raw/transcripts`, or
+	- user drags `.eml` emails to `raw/emails`, or
+	- user stored handwritten notes or scanned pages (PDF, JPG) in `raw/scans`
+- **ingest notes**
+	- user asks to ingest (new) raw notes
+	- LLM transcribes `raw/transcripts` and `raw/scans` to Markdown
+	- LLM ingests raw notes and updates all relevant wiki topic pages in `wiki/`
+	- LLM updates the semantic database `qmd` and runs a health check to keep the knowledge base lean and clean (after user confirmation)
+- **query wiki** 
+	- user asks a high-level question
+	- LLM queries semantic database (with the `qmd` skill) for relevant page links (fast/token-efficient)
+	- LLM processes `qmd`-suggested pages and produces answer to user
 
-The LLM tries to minimize the number of tokens spent and maximize speed, 
-by working together with QMD, instead of reading all pages itself, every time.
+The LLM tries to minimize the number of tokens spent and maximize speed, by working together with QMD, instead of reading all pages itself, every time.
 ## Getting started
 
 This knowledge base setup uses a combination of Obsidian (front-end), Claude and QMD (database) to create that knowledge base. It consists of:
