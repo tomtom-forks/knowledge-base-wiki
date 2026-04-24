@@ -1,3 +1,4 @@
 {
-  "folder": "raw/notes"
+  "folder": "raw/notes",
+  "template": "templates/daily-note"
 }
