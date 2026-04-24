@@ -33,8 +33,9 @@ by working together with QMD, instead of reading all pages itself, every time.
 │   ├── clips/          ← web articles and saved pages (web clipper)
 │   ├── confluence/     ← pages fetched from Atlassian Confluence (fetch cache)
 │   ├── emails/         ← email threads (.elm)
-│   ├── scans/          ← handwritten pages, whiteboards
 │   ├── notes/          ← notes, 1:1s, and people-specific files
+│   ├── scans/          ← handwritten pages, whiteboards
+│   │   └── transcribed/ ← transcribed scans (LLM-generated Markdown)
 │   └── transcripts/    ← meeting and conversation transcripts (.vtt)
 ├── wiki/
 │   ├── index.md        ← top-level navigation to section indexes

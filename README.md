@@ -92,6 +92,7 @@ Re-run `qmd update` (and optionally `qmd embed`) after each ingest to keep the i
 │   ├── confluence/     ← pages fetched from Atlassian Confluence (fetch cache)
 │   ├── emails/         ← email threads (.eml)
 │   ├── scans/          ← handwritten pages, whiteboards
+│   │   └── transcribed/ ← transcribed scans (LLM-generated Markdown)
 │   ├── notes/          ← notes, 1:1s, and people-specific files
 │   └── transcripts/    ← meeting and conversation transcripts (.vtt)
 ├── wiki/
