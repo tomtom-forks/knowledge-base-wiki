@@ -67,7 +67,7 @@ brew install qmd
 Register all `raw/` and `wiki/` subdirectories as QMD collections:
 
 ```sh
-bash scripts/qmd-sync-collections.sh
+./scripts/qmd-sync-collections.sh
 ```
 
 Then build the index:
