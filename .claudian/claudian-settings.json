@@ -1,5 +1,5 @@
 {
-  "userName": "",
+  "userName": "Rijn",
   "permissionMode": "yolo",
   "model": "sonnet",
   "thinkingBudget": "low",
@@ -7,8 +7,11 @@
   "serviceTier": "default",
   "enableAutoTitleGeneration": true,
   "titleGenerationModel": "",
-  "excludedTags": [],
-  "mediaFolder": "",
+  "excludedTags": [
+    "secret",
+    "hidden"
+  ],
+  "mediaFolder": "raw/notes/_resources",
   "systemPrompt": "",
   "persistentExternalContextPaths": [],
   "sharedEnvironmentVariables": "",
@@ -43,9 +46,9 @@
       "reasoningSummary": "detailed",
       "environmentVariables": "",
       "environmentHash": "",
-      "installationMethod": "native-windows",
-      "installationMethodsByHost": {},
-      "wslDistroOverride": "",
+      "installationMethodsByHost": {
+        "MAC-XJ6099T2HW": "native-windows"
+      },
       "wslDistroOverridesByHost": {}
     }
   },
