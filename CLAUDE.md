@@ -9,22 +9,23 @@ The user curates the 'raw' source files; the LLM never changes the 'raw' files. 
 ## In a nutshell
 
 Access to the knowledge base is as follows:
-- user produces raw notes and stores them in the `raw/notes` directory, or
-- user uses the Obsidian Web Clipper to store notes in `raw/clips`, or
-- user stores `.vtt` meetings transscripts in `raw/transcripts`, or
-- user drags `.eml` emails to `raw/emails`, or
-- user stored handwritten notes or scanned pages (PDF, JPG) in `raw/scans`
-- user asks to ingest (new) raw notes
-- LLM ingests raw notes and updates all relevant wiki-pages in `wiki/`
-- LLM updates QMD (semantic database), after user confirmation
-- user asks a high-level question
-- LLM queries QMD (with the QMD skill) for relevant page links
-- LLM processes suggested pages and produces answer to user
-- user may ask for a health check
-- LLM performs health check on wiki
+- **create and collect notes** 
+	- user produces raw notes and stores them in the `raw/notes` directory, or
+	- user uses the Obsidian Web Clipper to store notes in `raw/clips`, or
+	- user stores `.vtt` meeting transcripts in `raw/transcripts`, or
+	- user drags `.eml` emails to `raw/emails`, or
+	- user stored handwritten notes or scanned pages (PDF, JPG) in `raw/scans`
+- **ingest notes**
+	- user asks to ingest (new) raw notes
+	- LLM transcribes `raw/transcripts` and `raw/scans` to Markdown
+	- LLM ingests raw notes and updates all relevant wiki topic pages in `wiki/`
+	- LLM updates the semantic database `qmd` and runs a health check to keep the knowledge base lean and clean (after user confirmation)
+- **query wiki** 
+	- user asks a high-level question
+	- LLM queries semantic database (with the `qmd` skill) for relevant page links (fast/token-efficient)
+	- LLM processes `qmd`-suggested pages and produces answer to user
 
-The LLM tries to minimize the number of tokens spent and maximize speed, 
-by working together with QMD, instead of reading all pages itself, every time.
+The combination of using a semantic database to fetch relevant pages before analyzing documents and reasoning about them, makes this implementation of a knowledge significantly faster and more token efficient than when it's using Markdown files only.
 ## Directory structure (condensed)
 
 ```
@@ -78,6 +79,7 @@ When the user provides a source file to process, or ask to 'ingest new raw notes
 13. Update the relevant `wiki/<type>/_index.md` — add new pages (one line: link + summary); update summaries if materially changed. Keep entries alphabetically sorted.
 14. Append to end of `wiki/log.md`: `## [YYYY-MM-DD] ingest | [[<relative path>]]` followed by a 1-2 sentence brief.
 15. At the end of ingestion, present a multi-select menu (use `AskUserQuestion` with `multiSelect: true`) with these options — run only what is confirmed:
+    - **All (recommended)** — QMD text + vector embedding + lint; supersedes all individual selections
     - **QMD text re-index** (`qmd update`) — fast, rebuilds keyword index only
     - **QMD vector embedding** (`qmd update && qmd embed`) — slow, loads ~2 GB models; supersedes text-only if both are selected
     - **Lint** — health check: orphan pages, contradictions, data gaps
