@@ -1,0 +1,11 @@
+{
+  "alwaysUpdateLinks": true,
+  "readableLineLength": false,
+  "propertiesInDocument": "hidden",
+  "spellcheck": true,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "raw/notes",
+  "attachmentFolderPath": "/raw/notes/_resources",
+  "newLinkFormat": "absolute",
+  "uriCallbacks": true
+}
