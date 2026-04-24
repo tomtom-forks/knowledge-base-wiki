@@ -77,7 +77,10 @@ When the user provides a source file to process, or ask to 'ingest new raw notes
 12. Cross-reference terms pages — add `[[wikilinks]]` between related pages.
 13. Update the relevant `wiki/<type>/_index.md` — add new pages (one line: link + summary); update summaries if materially changed. Keep entries alphabetically sorted.
 14. Append to end of `wiki/log.md`: `## [YYYY-MM-DD] ingest | [[<relative path>]]` followed by a 1-2 sentence brief.
-15. At the end of ingestion, ask the user: *"Refresh QMD (semantic database) index? (1) `qmd update` — text re-index, fast; (2) `qmd update && qmd embed` — text + vectors, loads ~2GB models; (3) skip"* — run only what is confirmed.
+15. At the end of ingestion, present a multi-select menu (use `AskUserQuestion` with `multiSelect: true`) with these options — run only what is confirmed:
+    - **QMD text re-index** (`qmd update`) — fast, rebuilds keyword index only
+    - **QMD vector embedding** (`qmd update && qmd embed`) — slow, loads ~2 GB models; supersedes text-only if both are selected
+    - **Lint** — health check: orphan pages, contradictions, data gaps
 
 A single ingested source note may easily touch 5–15, or even more, wiki pages. That is expected and desirable.
 
