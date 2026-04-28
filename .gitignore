@@ -7,6 +7,7 @@ config/personal_info.md
 .obsidian/appearance.json
 .obsidian/community-plugins.json
 .obsidian/core-plugins.json
+.obsidian/graph.json
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .trash/
