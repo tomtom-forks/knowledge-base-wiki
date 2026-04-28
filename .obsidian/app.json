@@ -40,5 +40,6 @@
     "wiki/log.md",
     "wiki/index.md",
     "_index.md"
-  ]
+  ],
+  "showLineNumber": true
 }

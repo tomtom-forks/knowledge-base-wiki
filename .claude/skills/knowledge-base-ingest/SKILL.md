@@ -9,16 +9,16 @@ description: Use when the user asks to ingest, import, or process notes; mention
 
 When user provides a source file or asks to 'ingest new raw notes':
 
-1. Check last ingestion date: `grep "^## \[" wiki/log.md | tail -50`
+1. Check last ingestion date: `grep "^## \[" wiki/log.md | tail -100`
 2. Read source files in `raw/` not yet ingested.
 3. Read any attachments linked from source files (e.g. `_resource/` directories).
 4. Transcribe images/PDFs (handwritten notes, whiteboards) using `mcp__claude_ai_Atlassian__fetch` or similar.
 5. Save transcriptions to `transcribed/` alongside the source, with YAML frontmatter linking back to the source.
 6. For `.vtt` transcripts in `raw/transcripts/`: prefix filename with `YYYY-MM-DD` (mtime), rewrite to Markdown (`.md`, same name), tag speakers clearly. Ingest the `.md`.
 7. For `.eml` emails in `raw/emails/`: convert with `scripts/eml_to_md.py` (run `--help` for usage). Render body as Markdown; preserve reply threads as `>` blockquotes. Ingest the `.md`.
-8. Identify relationships to: competition, concepts, decisions, people, problems, projects.
-9. For each: create or update the wiki page. Add new info, expand sections; never delete or overwrite hand-curated content.
-10. Mark contradictions explicitly with a short explanation of what conflicts and why.
+8. Identify relationships to these topics: competition, concepts, decisions, people, problems, projects. 
+9. For each topics: create or update the wiki page. Add new info, expand sections; never delete or overwrite hand-curated content. For people, only create wiki pages for TomTom employees, unless the person is mentioned mutliple times in different pages. Also beware that peoples names can be followed by titles, like "John Smith, Dr.", or "Jpohn Smith, MD. PhD.". This is still 1 person (not a second person called "Dr." or "PhD."). And don't create pages for people unless you are confident you have a first- and last name. No wiki pages for incomplete names.
+10. Mark contradictions in the page clearly and explicitly with a short explanation of what conflicts and why. Add a frontmatter tag "requires-attention".
 11. Cross-reference with `[[wikilinks]]` between related pages.
 12. Update `wiki/<type>/_index.md` — add new entries (link + summary); keep alphabetically sorted.
 13. Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | [[<relative path>]]` + 1–2 sentence brief.
@@ -28,11 +28,10 @@ When user provides a source file or asks to 'ingest new raw notes':
     - **QMD text re-index** (`qmd update`) — fast, keywords only
     - **QMD vector embedding** (`qmd update && qmd embed`) — slow, ~2 GB models; supersedes text-only if both selected
     - **Lint** — health check: orphans, contradictions, gaps
-16. Commit changes. If there was anything to commit, ask if it needs to be pushed to `main` as well.
 
 **Note:** "ingest raw notes" means only new (un-ingested) notes. Never re-ingest all notes without explicit user confirmation.
 
-A single source note may touch 5–15+ wiki pages. That is expected and desirable.
+A single source note may touch many (like 5–25+) wiki pages. That is expected and desirable.
 
 ## Confluence ingestion
 
@@ -52,13 +51,15 @@ Triggered by a Confluence URL or page title:
 
 ## Bulk ingestion
 
-When processing multiple files: ingest in batches of 20, newest-to-oldest. After each note, announce topics created/updated and update log.
+When processing multiple files: ingest in batches of 20, newest-to-oldest. After each batch, announce topics created/updated and update log.
+Make sure all individual page references end up in the log as header-2 items ("##"), so the script can check for un-ingested notes later by looking at the header-2 lines.
 
-**Commit format:**
+**Log format:** (example with a batch of 3 notes)
 ```
-wiki: ingest batch <N> — <type>/<date-range>
+## [2026-04-19] batch - [[raw/notes/note1]] Short explanation of page.
+## [2026-04-19] batch - [[raw/notes/note2]] Another explanation.
+## [2026-04-19] batch - [[raw/notes/note3]] And one more.
 ```
-Example: `wiki: ingest batch 3 — notes/2025-01 to 2025-03`
 
 Proceed batch-by-batch until all notes are processed.
 
