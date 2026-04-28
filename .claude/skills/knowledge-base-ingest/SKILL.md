@@ -22,12 +22,13 @@ When user provides a source file or asks to 'ingest new raw notes':
 11. Cross-reference with `[[wikilinks]]` between related pages.
 12. Update `wiki/<type>/_index.md` — add new entries (link + summary); keep alphabetically sorted.
 13. Append to `wiki/log.md`: `## [YYYY-MM-DD] ingest | [[<relative path>]]` + 1–2 sentence brief.
-14. At end of ingestion, show multi-select menu (`AskUserQuestion` with `multiSelect: true`). Always run QMD indexing before lint:
+14. At the end of ingestions, present a table with all affected pages in `wiki/`.
+15. After that, show a multi-select menu (`AskUserQuestion` with `multiSelect: true`). Always run QMD indexing before lint:
     - **All (recommended)** — QMD text + vector embedding + lint; supersedes individual selections
     - **QMD text re-index** (`qmd update`) — fast, keywords only
     - **QMD vector embedding** (`qmd update && qmd embed`) — slow, ~2 GB models; supersedes text-only if both selected
     - **Lint** — health check: orphans, contradictions, gaps
-15. Commit and push to `main`.
+16. Commit changes. If there was anything to commit, ask if it needs to be pushed to `main` as well.
 
 **Note:** "ingest raw notes" means only new (un-ingested) notes. Never re-ingest all notes without explicit user confirmation.
 
