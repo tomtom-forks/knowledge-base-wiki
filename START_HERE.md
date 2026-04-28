@@ -7,3 +7,4 @@ tags: index
 
 ---
 
+![[config/knowledge_base_wiki_intro.png]]

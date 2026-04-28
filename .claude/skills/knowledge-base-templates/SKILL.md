@@ -52,13 +52,13 @@ type: index
 date: YYYY-MM-DD
 ---
 # <Type> - index
+[[wiki/index|← Index]]
 
 <One-sentence description of what this topic type covers.>
 
 - [[wiki/concepts/isa-regulation|ISA regulation]] — EU ISA mandatory regulation; requires current speed limit data even post-subscription-expiry.
 
 ---
-
 [[wiki/index|← Index]]
 ```
 
