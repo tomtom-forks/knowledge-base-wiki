@@ -75,6 +75,10 @@ I am ...
 
 If the file is missing, or it contains no info topics, default topics will be used.
 
+### Re-creating the Wiki from Scratch
+
+To re-create the entire wiki, you can simply remove the `wiki/` directory, `/clear` the Claude conversations and ask it to `ingest new raw notes`. This will restart the entire ingestion process. Note that for large amounts of notes, this may be expensive and take a long time.
+
 ## Installation
 
 ### Obsidian
