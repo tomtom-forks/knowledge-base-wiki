@@ -9,9 +9,10 @@ description: Use when the user asks to ingest, import, or process notes; mention
 
 For each markdown file:
 
-- Read `config/personal_info.md` for the wiki topic list (fallback if missing: competition, concepts, decisions, people, problems, projects).
+- Read `config/personal_info.md` for the wiki topic list (fallback if missing: competition, concepts, decisions, people, problems, projects, systems).
+- **Only use topics from that list.** Never create a `wiki/<dir>/` that is not one of those topics — not "systems", not "architecture", not anything else.
 - Identify relevance to each wiki topic. For relevant topics: create a new page or update an existing one.
-  - Always create pages at exactly one level deep: `wiki/<topic>/<page>.md` — never deeper (e.g. `wiki/systems/NavSDK.md`, not `wiki/systems/Navigation/NavSDK.md`).
+  - Always create pages at exactly one level deep: `wiki/<topic>/<page>.md` — never deeper (e.g. `wiki/concepts/NavSDK.md`, not `wiki/concepts/Navigation/NavSDK.md`).
   - Never delete or overwrite hand-curated content; expand and add instead.
   - For people: only create pages for confirmed employees, or people mentioned in multiple different sources. Require both first and last name. Ignore titles ("Dr.", "PhD.", "MD.") when parsing names — "John Smith, Dr." is one person named John Smith.
   - If ingestion leads to contradictions on a page, clearly mark the contradiction with a short explanation and add frontmatter tag `requires-attention`.
@@ -19,7 +20,7 @@ For each markdown file:
 - Do NOT update `wiki/<topic>/_index.md` during a session (deferred to finalization).
 - Append one log entry to the session log `raw/.session-N.jsonl` (one JSON object per line):
 ```json
-{"date":"YYYY-MM-DD","session":N,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/systems/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
+{"date":"YYYY-MM-DD","session":N,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/concepts/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
 ```
 
 Conversions before ingestion:
@@ -111,7 +112,7 @@ fetched: YYYY-MM-DD
 `wiki/log.jsonl` is append-only. One JSON object per line, sorted oldest-to-newest by append order.
 
 ```jsonl
-{"date":"YYYY-MM-DD","session":1,"file":"raw/notes/meeting-2026-03-01.md","summary":"Quarterly planning meeting notes.","pages_created":["wiki/decisions/adopt-vector-tiles.md","wiki/systems/AutoStream.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
+{"date":"YYYY-MM-DD","session":1,"file":"raw/notes/meeting-2026-03-01.md","summary":"Quarterly planning meeting notes.","pages_created":["wiki/decisions/adopt-vector-tiles.md","wiki/projects/AutoStream.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
 ```
 
 Finding un-ingested notes: `jq -r '.file' wiki/log.jsonl` — lists all ingested paths.  

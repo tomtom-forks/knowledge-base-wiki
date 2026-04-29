@@ -75,12 +75,13 @@ I am ...
 - ...
 
 # Wiki Top-level Topics    <-- best to use these words for this heading
-- Competition
-- Concepts
-- Decisions
-- People
-- Problems
-- Projects
+- competition
+- concepts
+- decisions
+- people
+- problems
+- projects
+- systems
 ```
 
 If the file is missing, or it contains no info topics, default topics will be used.
@@ -183,14 +184,14 @@ The directories `raw` and `wiki` are not stored in Git. Create them manually bef
 
 | Type              | Purpose                                                    |
 | ----------------- | ---------------------------------------------------------- |
-| **Concepts**      | Technologies, standards, mental models, domain vocabulary  |
-| **Competitors**   | Competing companies, products, and approaches              |
-| **Conversations** | Valuable results of earlier queries/conversations          |
-| **Decisions**     | Why decisions were taken, on what basis, by whom, and when |
-| **People**        | Colleagues, contacts, external stakeholders, teams         |
-| **Problems**      | Active and past problems                                   |
-| **Projects**      | Active and past initiatives                                |
-| **Systems**       | System, products, platforms, and services                  |
+| **competitors**   | Competing companies, products, and approaches              |
+| **concepts**      | Technologies, standards, mental models, domain vocabulary  |
+| **conversations** | Valuable results of earlier queries/conversations          |
+| **decisions**     | Why decisions were taken, on what basis, by whom, and when |
+| **people**        | Colleagues, contacts, external stakeholders, teams         |
+| **problems**      | Active and past problems                                   |
+| **projects**      | Active and past initiatives                                |
+| **systems**       | System, products, platforms, and services                  |
 
 ## Key rules
 
