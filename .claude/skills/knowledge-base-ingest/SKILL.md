@@ -53,7 +53,7 @@ When asked to "ingest next batch":
 
 1. **Claim a batch atomically**: run the following to find and claim the next unclaimed batch:
    ```bash
-   for f in $(ls raw/_import-batch-[0-9]*.txt 2>/dev/null | sort -V); do
+   for f in $(ls raw/_import-batch-[0-9]*.txt 2>/dev/null | grep -v '\.claimed\.' | sort -V); do
      mv "$f" "${f%.txt}.claimed.txt" 2>/dev/null && echo "${f%.txt}.claimed.txt" && break
    done
    ```
