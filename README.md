@@ -53,15 +53,27 @@ I’ve tried to make this pretty user-friendly, so putting stuff in the ‘raw�
 
 ### Personalizing your setup
 
-You can provide personal info on who you are, what you do and what your focus is, in `config/personal_info.md`. This file will be picked up by Claude to make responses even more relevant to you. This could be something like this:
+You can provide personal info on who you are, what you do and what your focus is, in `config/personal_info.md`. You can also identify the top-level topics you want in your wiki. This file will be picked up by Claude to make responses even more relevant to you. This could be something like this:
 
 ```
+# Personal Info
 My name is ...
 I am ...
-My main focus points are:
+
+# My Main Focus
+- Strategic decision making on technology choices.
 - ...
-- ...
+
+# Wiki Top-level Topics    <-- best to use these words for this heading
+- Competition
+- Concepts
+- Decisions
+- People
+- Problems
+- Projects
 ```
+
+If the file is missing, or it contains no info topics, default topics will be used.
 
 ## Installation
 

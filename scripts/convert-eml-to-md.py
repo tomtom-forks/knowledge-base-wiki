@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""eml_to_md — convert .eml files to Markdown for wiki ingestion.
+"""convert-eml-to-md — convert .eml files to Markdown for wiki ingestion.
 
-Each .eml is converted to a sibling .md file with YAML frontmatter and a
-plain-text / HTML-to-Markdown body.  The .eml filename is optionally prefixed
-with the email date (YYYY-MM-DD) if it does not already start with one.
+Each .eml is converted to a .md file (sibling by default, or in --output-dir)
+with YAML frontmatter and a plain-text / HTML-to-Markdown body.  The .eml
+filename is optionally prefixed with the email date (YYYY-MM-DD) if it does
+not already start with one.
 
 EXIT CODES
   0  all files converted successfully (or nothing to do)
@@ -18,16 +19,19 @@ OUTPUT FORMAT (for AI tools)
 
 EXAMPLES
   # Convert a single file (renames it with date prefix)
-  python3 eml_to_md.py "raw/emails/Some email.eml"
+  python3 convert-eml-to-md.py "raw/emails/Some email.eml"
 
   # Convert all .eml in a directory that don't yet have a .md counterpart
-  python3 eml_to_md.py --dir raw/emails --new
+  python3 convert-eml-to-md.py --dir raw/emails --new
 
   # Convert all .eml without renaming any files
-  python3 eml_to_md.py --dir raw/emails --no-rename
+  python3 convert-eml-to-md.py --dir raw/emails --no-rename
+
+  # Write .md files to a different directory
+  python3 convert-eml-to-md.py --dir raw/emails --output-dir raw/emails/converted
 
   # Dry run — show what would happen without writing anything
-  python3 eml_to_md.py --dir raw/emails --dry-run
+  python3 convert-eml-to-md.py --dir raw/emails --dry-run
 """
 
 import argparse
@@ -106,9 +110,10 @@ def get_email_date(msg: email.message.Message, eml_path: Path) -> tuple[datetime
             if dt:
                 return dt, "Received header"
 
-    # 3. File mtime
-    mtime = datetime.fromtimestamp(eml_path.stat().st_mtime, tz=timezone.utc)
-    return mtime, "file mtime (fallback)"
+    # 3. File creation time (birthtime on macOS/Windows; mtime fallback on Linux)
+    stat = eml_path.stat()
+    ts = getattr(stat, "st_birthtime", None) or stat.st_mtime
+    return datetime.fromtimestamp(ts, tz=timezone.utc), "file birthtime (fallback)"
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +289,7 @@ def safe_rename(src: Path, dst: Path, dry_run: bool) -> Path:
 # Core conversion
 # ---------------------------------------------------------------------------
 
-def convert(eml_path: Path, *, rename: bool, dry_run: bool) -> bool:
+def convert(eml_path: Path, *, rename: bool, dry_run: bool, output_dir: Path | None = None) -> bool:
     """Convert one .eml → .md.  Returns True on success."""
     # --- validate ---
     if not eml_path.exists():
@@ -314,22 +319,30 @@ def convert(eml_path: Path, *, rename: bool, dry_run: bool) -> bool:
         date_source = "today (fallback after error)"
     date_str = dt.strftime("%Y-%m-%d")
 
-    if date_source != "Date header":
+    if date_source not in ("Date header", "Received header"):
         warn(f"date sourced from {date_source}: {date_str}")
+
+    # --- birthtime for rename prefix ---
+    stat = eml_path.stat()
+    birthtime_ts = getattr(stat, "st_birthtime", None) or stat.st_mtime
+    birthtime_str = datetime.fromtimestamp(birthtime_ts, tz=timezone.utc).strftime("%Y-%m-%d")
 
     # --- optional rename ---
     if rename and not has_date_prefix(eml_path.name):
-        new_name = f"{date_str} {sanitize_filename(eml_path.stem)}.eml"
+        new_name = f"{birthtime_str} {sanitize_filename(eml_path.stem)}.eml"
         eml_path = safe_rename(eml_path, eml_path.parent / new_name, dry_run)
 
     # Always sanitize the stem so the .md path is free of non-ASCII chars even
     # when the .eml was not renamed (e.g. --no-rename or already date-prefixed).
-    md_path = eml_path.with_name(sanitize_filename(eml_path.stem) + ".md")
+    md_name = sanitize_filename(eml_path.stem) + ".md"
+    md_dir = output_dir if output_dir is not None else eml_path.parent
+    md_path = md_dir / md_name
 
     # --- headers ---
     from_val = decode_header(msg.get("From"), "From") or "(unknown sender)"
     to_val   = decode_header(msg.get("To"),   "To")   or "(unknown recipient)"
-    cc_val   = decode_header(msg.get("CC", msg.get("Cc")), "CC")
+    cc_val   = decode_header(msg.get("CC",  msg.get("Cc")),  "CC")
+    bcc_val  = decode_header(msg.get("BCC", msg.get("Bcc")), "BCC")
     subject  = decode_header(msg.get("Subject"), "Subject") or "(no subject)"
 
     if not msg.get("From"):
@@ -361,10 +374,31 @@ def convert(eml_path: Path, *, rename: bool, dry_run: bool) -> bool:
     ]
     if cc_val:
         lines.append(f"cc: {yaml_str(cc_val)}")
+    if bcc_val:
+        lines.append(f"bcc: {yaml_str(bcc_val)}")
     lines += [
         "---",
     ]
-    content = "\n".join(lines) + "\n\n" + body + "\n"
+
+    # Human-readable header block in the markdown body
+    header_lines = [
+        "```",
+        f"Date: {date_str}",
+        f"From: {from_val}",
+        f"To: {to_val}",
+    ]
+    if cc_val:
+        header_lines.append(f"CC: {cc_val}")
+    if bcc_val:
+        header_lines.append(f"BCC: {bcc_val}")
+    header_lines += [
+        f"Subject: {subject}",
+        "```",
+        "",
+        "---",
+    ]
+
+    content = "\n".join(lines) + "\n\n" + "\n".join(header_lines) + "\n\n" + body + "\n"
 
     if dry_run:
         info(f"[dry-run] would write {md_path.name!r} ({len(content)} bytes, body via {body_source})")
@@ -385,7 +419,7 @@ def convert(eml_path: Path, *, rename: bool, dry_run: bool) -> bool:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="eml_to_md.py",
+        prog="convert-eml-to-md.py",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description=textwrap.dedent("""\
             Convert .eml email files to Markdown (.md) for wiki ingestion.
@@ -408,21 +442,28 @@ def build_parser() -> argparse.ArgumentParser:
               from     From header (RFC 2047 decoded)
               to       To header
               cc       CC header (omitted when empty)
+              bcc      BCC header (omitted when empty)
               subject  Subject header
               date     YYYY-MM-DD from Date / Received / mtime
 
+            The markdown body also contains a human-readable header block
+            (Date / From / To / CC / BCC / Subject) before the email body.
+
             EXAMPLES
               # Convert a single file, rename with date prefix
-              python3 eml_to_md.py "raw/emails/Meeting notes.eml"
+              python3 convert-eml-to-md.py "raw/emails/Meeting notes.eml"
 
               # Convert all new .eml in a directory (skip those with a .md already)
-              python3 eml_to_md.py --dir raw/emails --new
+              python3 convert-eml-to-md.py --dir raw/emails --new
 
               # Batch convert without renaming
-              python3 eml_to_md.py --dir raw/emails --no-rename
+              python3 convert-eml-to-md.py --dir raw/emails --no-rename
+
+              # Write new .md files to a different directory
+              python3 convert-eml-to-md.py --dir raw/emails --new --output-dir raw/emails/converted
 
               # Preview what would happen
-              python3 eml_to_md.py --dir raw/emails --dry-run
+              python3 convert-eml-to-md.py --dir raw/emails --dry-run
 
             EXIT CODES
               0  all conversions succeeded (or nothing to do)
@@ -451,6 +492,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="do not prefix .eml filenames with the date",
     )
     parser.add_argument(
+        "--output-dir",
+        metavar="DIR",
+        help="write .md files to this directory instead of alongside the .eml files",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="show what would be done without writing or renaming any files",
@@ -461,6 +507,16 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+
+    # --- resolve output directory ---
+    output_dir: Path | None = None
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+        if not args.dry_run:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        if not args.dry_run and not output_dir.is_dir():
+            print(f"[ERROR] output-dir is not a directory: {args.output_dir}", file=sys.stderr)
+            sys.exit(1)
 
     # --- collect paths ---
     paths: list[Path] = []
@@ -490,7 +546,11 @@ def main() -> None:
     # --- apply --new filter ---
     if args.new:
         before = len(paths)
-        paths = [p for p in paths if not p.with_suffix(".md").exists()]
+        def _md_exists(p: Path) -> bool:
+            md_name = sanitize_filename(p.stem) + ".md"
+            check_dir = output_dir if output_dir is not None else p.parent
+            return (check_dir / md_name).exists()
+        paths = [p for p in paths if not _md_exists(p)]
         skipped = before - len(paths)
         if skipped:
             print(f"[INFO] --new: skipping {skipped} file(s) that already have a .md")
@@ -503,7 +563,7 @@ def main() -> None:
     n_ok = n_fail = 0
     for p in paths:
         print(f"converting {p.name!r} …")
-        success = convert(p, rename=not args.no_rename, dry_run=args.dry_run)
+        success = convert(p, rename=not args.no_rename, dry_run=args.dry_run, output_dir=output_dir)
         if success:
             n_ok += 1
         else:
