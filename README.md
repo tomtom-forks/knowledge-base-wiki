@@ -20,17 +20,27 @@ Access to the knowledge base is as follows:
 	- user drags `.eml` emails to `raw/emails`, or
 	- user stored handwritten notes or scanned pages (PDF, JPG) in `raw/scans`
 - **ingest notes**
-	- user asks to ingest (new) raw notes
-	- LLM transcribes non-Markdown `raw/transcripts` (`.vtt`) and `raw/scans` (`.pdf/.jpg`) to Markdown
-	- LLM ingests raw notes and updates all relevant wiki topic pages in `wiki/`
-	- LLM updates the semantic database `qmd` and runs a health check to keep the knowledge base lean and clean (after user confirmation)
-- **query wiki** 
+	- user asks to "ingest new raw notes" or "ingest Confluence page `<URL>`"
+	- LLM converts non-Markdown inputs: `.vtt` transcripts → `raw/transcripts/converted/`, `.eml` emails → `raw/emails/converted/`, `.pdf/.jpg` scans → `raw/scans/converted/`
+	- LLM partitions files into batches and processes them (large ingests use parallel Claude sessions 2–5; single batches are handled in one session)
+	- After all batches are done, user says "finalize ingest" to merge session logs, rebuild `_index.md` files, and run post-processing (QMD re-index + health check)
+- **query wiki**
 	- user asks a high-level question
 	- LLM queries semantic database (with the `qmd` skill) for relevant page links (fast/token-efficient)
 	- LLM processes `qmd`-suggested pages and produces answer to user
-	- LLM store valuable conversations in `raw/conversations` to extend the knowledge base
+	- LLM stores valuable conversations in `wiki/conversations/` to extend the knowledge base
 
 The combination of using a semantic database to fetch relevant pages before analyzing documents and reasoning about them, makes this implementation of a knowledge significantly faster and more token efficient than when it's using Markdown files only.
+
+## Slash commands
+
+These Claude Code slash commands are available for ingesting notes:
+
+| Command | Description |
+| ------- | ----------- |
+| `/wiki:ingest` | Start a new ingest of raw notes (Session 1 — coordinator flow) |
+| `/wiki:ingest-next` | Continue ingesting the next batch (Sessions 2–N flow) |
+| `/wiki:finalize` | Finalize the ingest: merge logs, rebuild indexes, run post-processing |
 
 ## Getting started
 
@@ -39,7 +49,7 @@ This knowledge base setup uses a combination of Obsidian (front-end), Claude and
 - a `raw` directory, which is my territory: I put all my notes there; AI can only read this, not write
 - a `wiki` directory, which is consolidated information about the raw notes; this is almost exclusively AI territory
 
-After putting all your notes in the raw directories, the magic word for Claude is: “ingest raw notes”. That will create the wiki and update the semantic database (QMD). After that you can ask all sorts of questions to Claude and it can efficiently reason over 100s or 1000s of pages (I’m using 2700 pages now and it seems to work just fine).
+After putting all your notes in the raw directories, the magic words for Claude are: “ingest new raw notes”. That will create the wiki and update the semantic database (QMD). After that you can ask all sorts of questions to Claude and it can efficiently reason over 100s or 1000s of pages (I’m using 2700 pages now and it seems to work just fine).
 
 The keyword here is AI efficiency: if you have 10s of notes, you don’t need any of this. If you have 100s, you’re already burning tokens. If you have 1000s of notes, Claude won’t handle this well without a semantic database backing the search.
 
@@ -146,13 +156,15 @@ and make sure it is safe to install. And if it is safe, install it. This is the 
 │   ├── clips/           ← web articles and saved pages (web clipper)
 │   ├── confluence/      ← pages fetched from Atlassian Confluence (fetch cache)
 │   ├── emails/          ← email threads (.eml)
+│   │   └── converted/   ← converted emails (LLM-generated Markdown)
 │   ├── scans/           ← handwritten pages, whiteboards
-│   │   └── transcribed/ ← transcribed scans (LLM-generated Markdown)
+│   │   └── converted/   ← converted scans (LLM-generated Markdown)
 │   ├── notes/           ← notes, 1:1s, and people-specific files
 │   └── transcripts/     ← meeting and conversation transcripts (.vtt)
+│       └── converted/   ← converted transcripts (LLM-generated Markdown)
 ├── wiki/
 │   ├── index.md         ← top-level navigation to section indexes
-│   ├── log.md           ← append-only ingest log
+│   ├── log.jsonl        ← append-only ingest log (JSON Lines)
 │   ├── concepts/        ← mental models and domain concepts
 │   │   └── _index.md    ← alphabetical index of concept pages
 │   ├── competition/     ← competitor profiles
@@ -184,7 +196,7 @@ The directories `raw` and `wiki` are not stored in Git. Create them manually bef
 
 - `raw/` is immutable — Claude never writes there (except `raw/confluence/` as a fetch cache).
 - `wiki/` is LLM-owned — Claude writes, the user reads.
-- The relevant `wiki/<type>/_index.md` and `wiki/log.md` are updated on every ingest.
+- The relevant `wiki/<type>/_index.md` files are rebuilt and `wiki/log.jsonl` is updated on every finalized ingest.
 - Hand-curated content in wiki pages is never deleted or overwritten.
 
 ## Recognition

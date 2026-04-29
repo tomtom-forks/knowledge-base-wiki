@@ -33,29 +33,41 @@ Conversions before ingestion:
 
 When asked to "ingest new raw notes" (or similar):
 
-1. **Partition** (run automatically): `bash scripts/create-batches-of-new-notes.sh 5`
-   - This removes any old `raw/import-batch-*.txt` remnants and creates fresh ones.
+1. **Partition** (run automatically): `bash scripts/create-import-batches.sh`
+   - Default max batch size is 50 files. Override with `--max-size N` (e.g. `--max-size 20`).
+   - This removes any old `raw/_import-batch-*.txt` remnants and creates fresh ones.
    - If output says "Nothing to ingest", report that and stop.
-2. **Check how many batches have content**: count non-empty `raw/import-batch-*.txt` files.
+2. **Check how many batches have content**: count non-empty `raw/_import-batch-*.txt` files (the script prints the count).
    - **If only 1 batch has content**: process it (step 3) and immediately proceed to Finalization — do NOT ask the user to open more sessions.
-   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more Claude Code sessions. In each one say: `ingest import batch N` (for N = 2, …). I'll start batch 1 now. When all sessions are done, say `finalize ingest` here." — then proceed to step 3.
-3. **Process batch 1**: read `raw/import-batch-1.txt`. For each file listed, apply per-note ingestion above. Use sub-agents and process in batches of 10 to conserve context. After finishing all files, delete `raw/import-batch-1.txt`.
+   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more Claude Code sessions. In each one say: `ingest next batch` (or `/wiki:ingest-next`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki:finalize`) here." — then proceed to step 3.
+3. **Process batch 1**: first claim it atomically:
+   ```bash
+   mv raw/_import-batch-1.txt raw/_import-batch-1.claimed.txt
+   ```
+   Then read `raw/_import-batch-1.claimed.txt`. For each file listed, apply per-note ingestion above. Use sub-agents and process in batches of 10 to conserve context. After finishing all files, delete `raw/_import-batch-1.claimed.txt`.
 4. **If single-batch**: proceed directly to Finalization. **If multi-batch**: report notes processed/pages created/updated, then await "finalize ingest".
 
-## Sessions 2–5
+## Sessions 2–N
 
-When asked to "ingest import batch N" (N = 2–5):
+When asked to "ingest next batch":
 
-1. Check `raw/import-batch-N.txt` exists and is non-empty; if not, report and stop.
-2. For each file listed, apply per-note ingestion above. Use sub-agents and process in batches of 10.
-3. After finishing all files, delete `raw/import-batch-N.txt`.
-4. Report: number of notes processed, pages created/updated.
+1. **Claim a batch atomically**: run the following to find and claim the next unclaimed batch:
+   ```bash
+   for f in $(ls raw/_import-batch-[0-9]*.txt 2>/dev/null | sort -V); do
+     mv "$f" "${f%.txt}.claimed.txt" 2>/dev/null && echo "${f%.txt}.claimed.txt" && break
+   done
+   ```
+   - If the loop prints a filename (e.g. `raw/_import-batch-2.claimed.txt`) → that is your batch; proceed.
+   - If nothing is printed → all batches are taken or already done; report "No unclaimed batch found" and stop.
+2. For each file listed in the claimed file, apply per-note ingestion above. Use sub-agents and process in batches of 10.
+3. After finishing all files, delete the `.claimed.txt` file.
+4. Report: batch number claimed, number of notes processed, pages created/updated.
 
 ## Finalization (coordinator)
 
 When asked to "finalize ingest":
 
-1. **Merge logs**: append all `raw/.session-*.jsonl` to `wiki/log.jsonl` (create `wiki/log.jsonl` if it doesn't exist). Then delete all `raw/.session-*.jsonl` and any remaining `raw/import-batch-*.txt`.
+1. **Merge logs**: append all `raw/.session-*.jsonl` to `wiki/log.jsonl` (create `wiki/log.jsonl` if it doesn't exist). Then delete all `raw/.session-*.jsonl` and any remaining `raw/_import-batch-*.txt`.
 2. **Rebuild indexes**: for every topic directory in `wiki/`:
    - List all `.md` files in the directory (excluding `_index.md`).
    - For each file: extract the title (first `#` heading, or filename without extension) and a 1-sentence summary (first non-heading, non-empty paragraph).
