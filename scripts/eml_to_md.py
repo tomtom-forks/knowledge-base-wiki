@@ -196,6 +196,68 @@ def yaml_str(value: str) -> str:
 # Filename helpers
 # ---------------------------------------------------------------------------
 
+# Map of non-ASCII characters to plain-ASCII equivalents for use in filenames.
+# Accented Latin letters (é, ü, ñ, …) are intentionally absent — they are allowed.
+_FILENAME_CHAR_MAP = str.maketrans({
+    # Curly / smart single quotes
+    "‘": "'",    # '  left single quotation mark
+    "’": "'",    # '  right single quotation mark / apostrophe
+    "‚": "'",    # ‚  single low-9 quotation mark
+    "‹": "<",    # ‹  single left-pointing angle quotation mark
+    "›": ">",    # ›  single right-pointing angle quotation mark
+    "′": "'",    # ′  prime
+    "‵": "'",    # ‵  reversed prime
+    # Curly / smart double quotes
+    "“": '"',    # "  left double quotation mark
+    "”": '"',    # "  right double quotation mark
+    "„": '"',    # „  double low-9 quotation mark
+    "‟": '"',    # ‟  double high-reversed-9 quotation mark
+    "«": '"',    # «  left-pointing double angle quotation mark
+    "»": '"',    # »  right-pointing double angle quotation mark
+    "″": '"',    # ″  double prime
+    "‶": '"',    # ‶  reversed double prime
+    # Dashes
+    "–": "-",    # –  en dash
+    "—": "-",    # —  em dash
+    "―": "-",    # ―  horizontal bar
+    "−": "-",    # −  minus sign
+    # Arrows
+    "←": "<-",   # ←  leftwards arrow
+    "→": "->",   # →  rightwards arrow
+    "↔": "<->",  # ↔  left right arrow
+    "⇐": "<=",   # ⇐  leftwards double arrow
+    "⇒": "=>",   # ⇒  rightwards double arrow
+    "⇔": "<=>",  # ⇔  left right double arrow
+    "↖": "^",    # ↖  north west arrow
+    "↗": "^",    # ↗  north east arrow
+    "↘": "v",    # ↘  south east arrow
+    "↙": "v",    # ↙  south west arrow
+    # Ellipsis
+    "…": "...",  # …  horizontal ellipsis
+    # Bullets / dots
+    "•": "-",    # •  bullet
+    "·": ".",    # ·  middle dot
+    "‣": "-",    # ‣  triangular bullet
+    # Spaces
+    " ": " ",    # non-breaking space
+    " ": " ",    # narrow no-break space
+    " ": " ",    # thin space
+    "​": "",     # zero-width space
+    # Misc
+    "×": "x",    # ×  multiplication sign
+    "÷": "-",    # ÷  division sign  (/ is path separator — use -)
+    "⁄": "-",    # ⁄  fraction slash (/ is path separator — use -)
+})
+
+
+def sanitize_filename(name: str) -> str:
+    """Replace known non-ASCII filename-unfriendly chars with ASCII equivalents.
+
+    Accented Latin characters (é, ü, ñ, …) are left unchanged.
+    """
+    return name.translate(_FILENAME_CHAR_MAP)
+
+
 _DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
@@ -257,10 +319,12 @@ def convert(eml_path: Path, *, rename: bool, dry_run: bool) -> bool:
 
     # --- optional rename ---
     if rename and not has_date_prefix(eml_path.name):
-        new_name = f"{date_str} {eml_path.name}"
+        new_name = f"{date_str} {sanitize_filename(eml_path.stem)}.eml"
         eml_path = safe_rename(eml_path, eml_path.parent / new_name, dry_run)
 
-    md_path = eml_path.with_suffix(".md")
+    # Always sanitize the stem so the .md path is free of non-ASCII chars even
+    # when the .eml was not renamed (e.g. --no-rename or already date-prefixed).
+    md_path = eml_path.with_name(sanitize_filename(eml_path.stem) + ".md")
 
     # --- headers ---
     from_val = decode_header(msg.get("From"), "From") or "(unknown sender)"
