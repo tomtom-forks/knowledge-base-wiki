@@ -92,6 +92,22 @@ If the file is missing, or it contains no info topics, default topics will be us
 
 To re-create the entire wiki, you can simply remove the `wiki/` directory, `/clear` the Claude conversations and ask it to `ingest new raw notes`. This will restart the entire ingestion process. Note that for large amounts of notes, this may be expensive and take a long time.
 
+### Checking Your Database
+
+The database is automatically checked for errors after ingesting new notes, but sometimes the errors cannot be fixed automatically. You are advised to sometimes run:
+```
+./scripts/check-broken-links.py --check --format text
+```
+This checks the consistency of your entire database. If you encounter problems, you can run:
+```
+./scripts/check-broken-links.py --check --interactive
+```
+This provides a UI to deal with broken links by
+- removing them, 
+- simply marking them as broken, or 
+- allowing you to search for the proper target link in `raw` and `wiki` and replacing it with that.
+Try it out. It's quite user-friendly.
+
 ## Installation
 
 ### Obsidian

@@ -35,6 +35,7 @@ ROOT_DIR defaults to the directory containing this script's parent.
 
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -183,6 +184,16 @@ def fix_wikilinks_in_file(file_path: Path, fixes: list) -> int:
     if count:
         file_path.write_text(content, encoding="utf-8")
     return count
+
+
+def replace_mdlink_target_in_file(file_path: Path, old_target: str, new_target: str) -> int:
+    """Replace a markdown link target in-place; returns substitution count."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    pattern = re.compile(r'(?<!!)\[([^\]]*)\]\(' + re.escape(old_target) + r'(?:#[^)]*)?\)')
+    new_content, n = pattern.subn(lambda m: f'[{m.group(1)}]({new_target})', content)
+    if n:
+        file_path.write_text(new_content, encoding="utf-8")
+    return n
 
 
 def resolve_wikilink(target: str, root: Path, all_md_stems: dict[str, list[Path]]) -> bool:
@@ -487,6 +498,9 @@ def should_skip_md(path: Path, root: Path) -> bool:
         return True
     # Skip SKILL.md files (superpowers skill definitions)
     if path.name == "SKILL.md":
+        return True
+    # Skip index and navigation files
+    if path.name in ("index.md", "_index.md", "START_HERE.md"):
         return True
     # Skip the log file — it contains ingest headers with individual page links
     if rel == Path("wiki/log.md"):
@@ -807,7 +821,208 @@ def run_interactive(broken_links: list, root: Path) -> None:
         except Exception as e:
             return [(entry["line"], f"(error reading file: {e})", True)]
 
-    def show_popup(stdscr, entry: dict) -> "str | None":
+    def show_file_browser(stdscr, broken_target: str = "") -> "Path | None":
+        """Browse the vault tree and pick a replacement .md file.
+        Returns path relative to root, or None if cancelled."""
+        top_names = ("wiki", "raw")
+        top_dirs = [root / name for name in top_names if (root / name).is_dir()]
+        if not top_dirs:
+            top_dirs = sorted(d for d in root.iterdir() if d.is_dir() and not d.name.startswith("."))
+
+        class _Node:
+            __slots__ = ("path", "depth", "expanded", "_children")
+
+            def __init__(self, path: Path, depth: int):
+                self.path = path
+                self.depth = depth
+                self.expanded = False
+                self._children: "list | None" = None
+
+            @property
+            def is_dir(self) -> bool:
+                return self.path.is_dir()
+
+            def load_children(self) -> list:
+                if self._children is None:
+                    kids: list = []
+                    try:
+                        for p in sorted(self.path.iterdir(),
+                                        key=lambda x: (not x.is_dir(), x.name.lower())):
+                            if p.name.startswith("."):
+                                continue
+                            if p.is_dir() or p.suffix.lower() == ".md":
+                                kids.append(_Node(p, self.depth + 1))
+                    except PermissionError:
+                        pass
+                    self._children = kids
+                return self._children
+
+        root_nodes = [_Node(d, 0) for d in top_dirs]
+
+        def build_visible() -> list:
+            out: list = []
+
+            def _walk(nodes: list) -> None:
+                for nd in nodes:
+                    out.append(nd)
+                    if nd.is_dir and nd.expanded:
+                        _walk(nd.load_children())
+
+            _walk(root_nodes)
+            return out
+
+        height, width = stdscr.getmaxyx()
+        pop_w = min(max(50, width - 6), width - 2)
+        pop_h = min(max(10, height - 4), height - 2)
+        pop_y = max(0, (height - pop_h) // 2)
+        pop_x = max(0, (width - pop_w) // 2)
+
+        win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
+        win.keypad(True)
+
+        selected = 0
+        scroll_offset = 0
+
+        while True:
+            visible = build_visible()
+            if not visible:
+                del win
+                stdscr.touchwin()
+                stdscr.refresh()
+                return None
+            if selected >= len(visible):
+                selected = len(visible) - 1
+
+            win.erase()
+            win.box()
+            title = " Find replacement link "
+            try:
+                win.addstr(0, max(1, (pop_w - len(title)) // 2), title)
+            except _curses.error:
+                pass
+
+            if broken_target:
+                try:
+                    label = "replacing: "
+                    win.addstr(1, 2, label, _curses.A_DIM)
+                    win.addstr(1, 2 + len(label),
+                               broken_target[:max(1, pop_w - 2 - len(label))],
+                               _curses.color_pair(5) | _curses.A_BOLD)
+                except _curses.error:
+                    pass
+
+            nav = "↑↓ navigate   → expand   ← collapse   a-z=jump to name   Enter=select   Esc=cancel"
+            try:
+                win.addstr(2, max(1, (pop_w - len(nav)) // 2), nav[:pop_w - 2])
+            except _curses.error:
+                pass
+            sep = "─" * (pop_w - 2)
+            try:
+                win.addstr(3, 1, sep[:pop_w - 2])
+            except _curses.error:
+                pass
+
+            list_h = pop_h - 5  # rows 4 .. pop_h-2
+            if selected < scroll_offset:
+                scroll_offset = selected
+            elif selected >= scroll_offset + list_h:
+                scroll_offset = selected - list_h + 1
+
+            inner_w = pop_w - 4
+            for row in range(list_h):
+                idx = scroll_offset + row
+                if idx >= len(visible):
+                    break
+                nd = visible[idx]
+                indent = "  " * nd.depth
+                if nd.is_dir:
+                    icon = "▼ " if nd.expanded else "▶ "
+                    label = indent + icon + nd.path.name + "/"
+                else:
+                    label = indent + "  " + nd.path.name
+                attr = _curses.A_REVERSE if idx == selected else _curses.A_NORMAL
+                try:
+                    win.addstr(4 + row, 2, label[:inner_w], attr)
+                except _curses.error:
+                    pass
+
+            win.refresh()
+            key = win.getch()
+
+            if key == 27:  # Escape
+                del win
+                stdscr.touchwin()
+                stdscr.refresh()
+                return None
+            elif key == _curses.KEY_UP:
+                if selected > 0:
+                    selected -= 1
+            elif key == _curses.KEY_DOWN:
+                if selected < len(visible) - 1:
+                    selected += 1
+            elif key == _curses.KEY_PPAGE:
+                page = max(1, list_h - 1)
+                selected = max(0, selected - page)
+            elif key == _curses.KEY_NPAGE:
+                page = max(1, list_h - 1)
+                selected = min(len(visible) - 1, selected + page)
+            elif key == _curses.KEY_RIGHT:
+                nd = visible[selected]
+                if nd.is_dir and not nd.expanded:
+                    nd.expanded = True
+                    nd.load_children()
+            elif key == _curses.KEY_LEFT:
+                nd = visible[selected]
+                if nd.is_dir and nd.expanded:
+                    nd.expanded = False
+                else:
+                    # Jump to and collapse parent
+                    for i in range(selected - 1, -1, -1):
+                        if visible[i].depth == nd.depth - 1 and visible[i].is_dir:
+                            visible[i].expanded = False
+                            selected = i
+                            break
+            elif key in (10, 13):  # Enter
+                nd = visible[selected]
+                if nd.is_dir:
+                    nd.expanded = not nd.expanded
+                    if nd.expanded:
+                        nd.load_children()
+                else:
+                    del win
+                    stdscr.touchwin()
+                    stdscr.refresh()
+                    return nd.path.relative_to(root)
+            elif 32 <= key <= 126:  # printable ASCII — jump to next matching name
+                ch = chr(key).lower()
+                n_vis = len(visible)
+                for offset in range(1, n_vis + 1):
+                    candidate = (selected + offset) % n_vis
+                    if visible[candidate].path.name.lower().startswith(ch):
+                        selected = candidate
+                        break
+
+    def do_find_replace(i: int, new_rel: Path) -> str:
+        """Replace the broken link at index i with a link to new_rel (relative to root)."""
+        entry = broken_links[i]
+        old_target = entry["target"]
+        is_wiki = entry["type"] == "wikilink" or (entry["type"] == "image" and "[[" in entry["raw"])
+        try:
+            if is_wiki:
+                new_target = str(new_rel.with_suffix(""))
+                count = fix_wikilinks_in_file(root / entry["file"], [(old_target, new_target)])
+            else:
+                source_dir = (root / entry["file"]).parent
+                new_target = os.path.relpath(root / new_rel, source_dir)
+                count = replace_mdlink_target_in_file(root / entry["file"], old_target, new_target)
+            if count:
+                entry["target"] = new_target
+                return "replaced"
+            return "no match — may already be changed"
+        except Exception as e:
+            return f"error: {e}"
+
+    def show_popup(stdscr, entry: dict, idx: int) -> "str | None":
         """Draw a wide popup with source context and missing link; close on Enter."""
         context_lines = read_source_context(entry)
         missing = entry["target"]
@@ -837,21 +1052,41 @@ def run_interactive(broken_links: list, root: Path) -> None:
         pop_x = max(0, (width - pop_w) // 2)
 
         sep = "─" * (pop_w - 2)
-        hint = "[ ↑/↓ prev/next   d=delete   b=mark broken   Enter/q=close ]"
+        hint = "[ ↑/↓ prev/next   d=delete   b=mark broken   f=find link   Enter/q=close ]"
 
         win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
         win.keypad(True)
         win.box()
-        title = " Broken link detail "
+        title = f" Broken link detail {idx + 1}/{n} "
         win.addstr(0, (pop_w - len(title)) // 2, title)
         win.addstr(1, 2, f"file: {entry['file']}"[:pop_w - 3])
         win.addstr(2, 2, f"line: {entry['line']}"[:pop_w - 3])
         win.addstr(3, 1, sep[:pop_w - 2])
         max_content_rows = max(0, pop_h - 8)
+        hl_attr = _curses.color_pair(5) | _curses.A_BOLD
+        raw_link = entry.get("raw", "")
+        tgt = entry.get("target", "")
         for i, (display, is_current) in enumerate(display_rows[:max_content_rows]):
-            attr = _curses.A_NORMAL if is_current else _curses.A_DIM
+            base_attr = _curses.A_NORMAL if is_current else _curses.A_DIM
+            text = display[:pop_w - 3]
+            highlighted = False
             try:
-                win.addstr(4 + i, 2, display[:pop_w - 3], attr)
+                if is_current:
+                    for needle in (raw_link, tgt):
+                        if not needle:
+                            continue
+                        pos = text.find(needle)
+                        if pos != -1:
+                            hl_end = min(pos + len(needle), len(text))
+                            if pos > 0:
+                                win.addstr(4 + i, 2, text[:pos], base_attr)
+                            win.addstr(4 + i, 2 + pos, text[pos:hl_end], hl_attr)
+                            if hl_end < len(text):
+                                win.addstr(4 + i, 2 + hl_end, text[hl_end:], base_attr)
+                            highlighted = True
+                            break
+                if not highlighted:
+                    win.addstr(4 + i, 2, text, base_attr)
             except _curses.error:
                 pass
         sep_row = 4 + min(len(display_rows), max_content_rows)
@@ -883,6 +1118,9 @@ def run_interactive(broken_links: list, root: Path) -> None:
             elif key in (ord("b"), ord("B")):
                 action = "b"
                 break
+            elif key in (ord("f"), ord("F")):
+                action = "f"
+                break
 
         del win
         stdscr.touchwin()
@@ -896,6 +1134,10 @@ def run_interactive(broken_links: list, root: Path) -> None:
         _curses.init_pair(1, _curses.COLOR_BLACK, _curses.COLOR_CYAN)  # selected
         _curses.init_pair(2, _curses.COLOR_GREEN, -1)                  # deleted
         _curses.init_pair(3, _curses.COLOR_YELLOW, -1)                 # marked broken
+        _curses.init_pair(4, _curses.COLOR_MAGENTA, -1)               # replaced
+        _curses.init_pair(5, _curses.COLOR_YELLOW, -1)                 # broken link in popup
+        _curses.init_pair(6, _curses.COLOR_WHITE, -1)                  # filename in list
+        _curses.init_pair(7, _curses.COLOR_CYAN, -1)                   # file line number in list
 
         selected = 0
         offset = 0
@@ -907,7 +1149,7 @@ def run_interactive(broken_links: list, root: Path) -> None:
             list_height = height - 4
 
             stdscr.addstr(0, 0, f"Broken links ({n} total)"[:width - 1])
-            stdscr.addstr(1, 0, "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   q=quit"[:width - 1])
+            stdscr.addstr(1, 0, "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   f=find link   q=quit"[:width - 1])
             stdscr.addstr(2, 0, ("─" * (width - 1))[:width - 1])
 
             if selected < offset:
@@ -919,20 +1161,50 @@ def run_interactive(broken_links: list, root: Path) -> None:
                 idx = offset + row
                 if idx >= n:
                     break
+                b = broken_links[idx]
                 state = states[idx]
-                line = fmt_line(idx)
                 if state == "deleted":
                     prefix = "[DEL] "
-                    attr = _curses.color_pair(2)
+                    state_attr = _curses.color_pair(2)
                 elif state == "broken":
                     prefix = "[BRK] "
-                    attr = _curses.color_pair(3)
+                    state_attr = _curses.color_pair(3)
+                elif state == "replaced":
+                    prefix = "[FIX] "
+                    state_attr = _curses.color_pair(4)
                 else:
                     prefix = "      "
-                    attr = _curses.A_NORMAL
+                    state_attr = _curses.A_NORMAL
+                y = 3 + row
+                avail = width - 1
                 if idx == selected:
-                    attr = _curses.color_pair(1) | _curses.A_BOLD
-                stdscr.addstr(3 + row, 0, (prefix + line)[:width - 1], attr)
+                    line = fmt_line(idx)
+                    try:
+                        stdscr.addstr(y, 0, (prefix + line)[:avail], _curses.color_pair(1) | _curses.A_BOLD)
+                    except _curses.error:
+                        pass
+                    continue
+                x = 0
+                for text, attr in [
+                    (prefix,                        state_attr),
+                    (f"{idx + 1:3d}",               _curses.color_pair(2)),
+                    ("  ",                          _curses.A_NORMAL),
+                    ("file:",                       _curses.A_DIM),
+                    (truncate_path(b['file']),      _curses.color_pair(6) | _curses.A_BOLD),
+                    (", ",                          _curses.A_NORMAL),
+                    ("line:",                       _curses.A_DIM),
+                    (str(b['line']),                _curses.color_pair(7)),
+                    (", ",                          _curses.A_NORMAL),
+                    ("link:",                       _curses.A_DIM),
+                    (b['target'],                   _curses.color_pair(5) | _curses.A_BOLD),
+                ]:
+                    if x >= avail or not text:
+                        continue
+                    try:
+                        stdscr.addstr(y, x, text[:avail - x], attr)
+                    except _curses.error:
+                        pass
+                    x += len(text)
 
             done = sum(1 for s in states if s is not None)
             status = messages[selected] if messages[selected] else ""
@@ -955,15 +1227,19 @@ def run_interactive(broken_links: list, root: Path) -> None:
             elif key == _curses.KEY_DOWN:
                 if selected < n - 1:
                     selected += 1
-            elif key in (10, 13):  # Enter — open popup starting from first unhandled item
-                first_unhandled = next((i for i in range(n) if states[i] is None), None)
-                if first_unhandled is None:
-                    continue  # nothing left to handle
-                idx = first_unhandled
-                selected = idx
+            elif key == _curses.KEY_PPAGE:
+                height, _ = stdscr.getmaxyx()
+                page = max(1, height - 4 - 1)
+                selected = max(0, selected - page)
+            elif key == _curses.KEY_NPAGE:
+                height, _ = stdscr.getmaxyx()
+                page = max(1, height - 4 - 1)
+                selected = min(n - 1, selected + page)
+            elif key in (10, 13):  # Enter — open popup for the selected item
+                idx = selected
                 while True:
                     redraw()
-                    action = show_popup(stdscr, broken_links[idx])
+                    action = show_popup(stdscr, broken_links[idx], idx)
                     if action == "d":
                         result = do_delete(idx)
                         states[idx] = "deleted" if result == "deleted" else None
@@ -972,7 +1248,13 @@ def run_interactive(broken_links: list, root: Path) -> None:
                         result = do_broken(idx)
                         states[idx] = "broken" if result == "broken" else None
                         messages[idx] = "Marked [[broken-link|…]]." if result == "broken" else result
-                    if action in ("d", "b"):
+                    elif action == "f":
+                        new_rel = show_file_browser(stdscr, broken_links[idx].get("target", ""))
+                        if new_rel is not None:
+                            result = do_find_replace(idx, new_rel)
+                            states[idx] = "replaced" if result == "replaced" else None
+                            messages[idx] = f"→ {new_rel.stem}" if result == "replaced" else result
+                    if action in ("d", "b") or (action == "f" and states[idx] is not None):
                         # After acting, advance to next unhandled
                         next_idx = next((i for i in range(idx + 1, n) if states[i] is None), None)
                         if next_idx is not None:
@@ -1001,13 +1283,21 @@ def run_interactive(broken_links: list, root: Path) -> None:
                     result = do_broken(selected)
                     states[selected] = "broken" if result == "broken" else None
                     messages[selected] = "Marked [[broken-link|…]]." if result == "broken" else result
+            elif key in (ord("f"), ord("F")):
+                if states[selected] is None:
+                    new_rel = show_file_browser(stdscr, broken_links[selected].get("target", ""))
+                    if new_rel is not None:
+                        result = do_find_replace(selected, new_rel)
+                        states[selected] = "replaced" if result == "replaced" else None
+                        messages[selected] = f"→ {new_rel.stem}" if result == "replaced" else result
 
     _curses.wrapper(curses_main)
 
     deleted = sum(1 for s in states if s == "deleted")
     broken_count = sum(1 for s in states if s == "broken")
-    skipped = n - deleted - broken_count
-    print(f"\nSession complete: {deleted} deleted, {broken_count} marked broken, {skipped} skipped.")
+    replaced_count = sum(1 for s in states if s == "replaced")
+    skipped = n - deleted - broken_count - replaced_count
+    print(f"\nSession complete: {deleted} deleted, {broken_count} marked broken, {replaced_count} replaced, {skipped} skipped.")
 
 
 # ---------------------------------------------------------------------------
