@@ -9,7 +9,7 @@ description: Use when the user asks to ingest, import, or process notes; mention
 
 For each markdown file:
 
-- Read `config/personal_info.md` for the wiki topic list (fallback if missing: competition, concepts, decisions, people, problems, projects, systems).
+- The top-level wiki topic list is: competition, concepts, decisions, people, problems, projects, systems.
 - **Only use topics from that list.** Never create a `wiki/<dir>/` that is not one of those topics — not "systems", not "architecture", not anything else.
 - Identify relevance to each wiki topic. For relevant topics: create a new page or update an existing one.
   - Always create pages at exactly one level deep: `wiki/<topic>/<page>.md` — never deeper (e.g. `wiki/concepts/NavSDK.md`, not `wiki/concepts/Navigation/NavSDK.md`).

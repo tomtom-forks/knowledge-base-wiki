@@ -361,6 +361,26 @@ def delete_wikilink_in_file(file_path: Path, target: str):
     return changed, removed_linenos
 
 
+def delink_wikilink_in_file(file_path: Path, target: str) -> int:
+    """Strip [[ ]] brackets from wikilinks, leaving plain text.
+    Path prefix and extension are also removed when no alias is present.
+    [[x/y/z]] → z,  [[x/y/z|alias]] → alias
+    [[target#heading]] → target,  [[target#heading|alias]] → alias
+    Returns substitution count."""
+    content = file_path.read_text(encoding='utf-8', errors='replace')
+    pattern = re.compile(
+        r'(?<!!)\[\[' + re.escape(target) + r'(?:#[^|\]]*)?(?:\|([^\]]*))?\]\]'
+    )
+    stem = Path(target).stem  # strips any path prefix and extension: x/y/z.md → z
+    def _repl(m, _stem=stem):
+        alias = m.group(1)
+        return alias if alias is not None else _stem
+    new_content, n = pattern.subn(_repl, content)
+    if n:
+        file_path.write_text(new_content, encoding='utf-8')
+    return n
+
+
 def delete_mdlink_in_file(file_path: Path, target: str):
     """Remove [text](target) standard markdown links from file.
     If the resulting line is bare, the whole line is dropped.
@@ -809,6 +829,14 @@ def run_interactive(broken_links: list, root: Path) -> None:
         except Exception as e:
             return f"error: {e}"
 
+    def do_delink(i: int) -> str:
+        entry = broken_links[i]
+        try:
+            n = delink_wikilink_in_file(root / entry["file"], entry["target"])
+            return "delinked" if n else "no match — may already be handled"
+        except Exception as e:
+            return f"error: {e}"
+
     def read_source_context(entry: dict, context: int = 2) -> list:
         """Return list of (lineno, text, is_current) for the line and `context` lines around it."""
         try:
@@ -1052,7 +1080,7 @@ def run_interactive(broken_links: list, root: Path) -> None:
         pop_x = max(0, (width - pop_w) // 2)
 
         sep = "─" * (pop_w - 2)
-        hint = "[ ↑/↓ prev/next   d=delete   b=mark broken   f=find link   Enter/q=close ]"
+        hint = "[ ↑/↓ prev/next   d=delete   b=mark broken   r=plain text   f=find link   Enter/q=close ]"
 
         win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
         win.keypad(True)
@@ -1118,6 +1146,9 @@ def run_interactive(broken_links: list, root: Path) -> None:
             elif key in (ord("b"), ord("B")):
                 action = "b"
                 break
+            elif key in (ord("r"), ord("R")):
+                action = "r"
+                break
             elif key in (ord("f"), ord("F")):
                 action = "f"
                 break
@@ -1138,6 +1169,7 @@ def run_interactive(broken_links: list, root: Path) -> None:
         _curses.init_pair(5, _curses.COLOR_YELLOW, -1)                 # broken link in popup
         _curses.init_pair(6, _curses.COLOR_WHITE, -1)                  # filename in list
         _curses.init_pair(7, _curses.COLOR_CYAN, -1)                   # file line number in list
+        _curses.init_pair(8, _curses.COLOR_BLUE, -1)                   # delinked (plain text)
 
         selected = 0
         offset = 0
@@ -1149,7 +1181,7 @@ def run_interactive(broken_links: list, root: Path) -> None:
             list_height = height - 4
 
             stdscr.addstr(0, 0, f"Broken links ({n} total)"[:width - 1])
-            stdscr.addstr(1, 0, "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   f=find link   q=quit"[:width - 1])
+            stdscr.addstr(1, 0, "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   r=plain text   f=find link   q=quit"[:width - 1])
             stdscr.addstr(2, 0, ("─" * (width - 1))[:width - 1])
 
             if selected < offset:
@@ -1172,6 +1204,9 @@ def run_interactive(broken_links: list, root: Path) -> None:
                 elif state == "replaced":
                     prefix = "[FIX] "
                     state_attr = _curses.color_pair(4)
+                elif state == "delinked":
+                    prefix = "[TXT] "
+                    state_attr = _curses.color_pair(8)
                 else:
                     prefix = "      "
                     state_attr = _curses.A_NORMAL
@@ -1248,13 +1283,17 @@ def run_interactive(broken_links: list, root: Path) -> None:
                         result = do_broken(idx)
                         states[idx] = "broken" if result == "broken" else None
                         messages[idx] = "Marked [[broken-link|…]]." if result == "broken" else result
+                    elif action == "r":
+                        result = do_delink(idx)
+                        states[idx] = "delinked" if result == "delinked" else None
+                        messages[idx] = "Brackets removed (plain text)." if result == "delinked" else result
                     elif action == "f":
                         new_rel = show_file_browser(stdscr, broken_links[idx].get("target", ""))
                         if new_rel is not None:
                             result = do_find_replace(idx, new_rel)
                             states[idx] = "replaced" if result == "replaced" else None
                             messages[idx] = f"→ {new_rel.stem}" if result == "replaced" else result
-                    if action in ("d", "b") or (action == "f" and states[idx] is not None):
+                    if action in ("d", "b", "r") or (action == "f" and states[idx] is not None):
                         # After acting, advance to next unhandled
                         next_idx = next((i for i in range(idx + 1, n) if states[i] is None), None)
                         if next_idx is not None:
@@ -1283,6 +1322,11 @@ def run_interactive(broken_links: list, root: Path) -> None:
                     result = do_broken(selected)
                     states[selected] = "broken" if result == "broken" else None
                     messages[selected] = "Marked [[broken-link|…]]." if result == "broken" else result
+            elif key in (ord("r"), ord("R")):
+                if states[selected] is None:
+                    result = do_delink(selected)
+                    states[selected] = "delinked" if result == "delinked" else None
+                    messages[selected] = "Brackets removed (plain text)." if result == "delinked" else result
             elif key in (ord("f"), ord("F")):
                 if states[selected] is None:
                     new_rel = show_file_browser(stdscr, broken_links[selected].get("target", ""))
@@ -1296,8 +1340,9 @@ def run_interactive(broken_links: list, root: Path) -> None:
     deleted = sum(1 for s in states if s == "deleted")
     broken_count = sum(1 for s in states if s == "broken")
     replaced_count = sum(1 for s in states if s == "replaced")
-    skipped = n - deleted - broken_count - replaced_count
-    print(f"\nSession complete: {deleted} deleted, {broken_count} marked broken, {replaced_count} replaced, {skipped} skipped.")
+    delinked_count = sum(1 for s in states if s == "delinked")
+    skipped = n - deleted - broken_count - replaced_count - delinked_count
+    print(f"\nSession complete: {deleted} deleted, {broken_count} marked broken, {delinked_count} plain text, {replaced_count} replaced, {skipped} skipped.")
 
 
 # ---------------------------------------------------------------------------
