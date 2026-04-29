@@ -40,7 +40,7 @@ When asked to "ingest new raw notes" (or similar):
    - If output says "Nothing to ingest", report that and stop.
 2. **Check how many batches have content**: count non-empty `raw/_import-batch-*.txt` files (the script prints the count).
    - **If only 1 batch has content**: process it (step 3) and immediately proceed to Finalization — do NOT ask the user to open more sessions.
-   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more Claude Code sessions. In each one say: `ingest next batch` (or `/wiki:ingest-next`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki:finalize`) here." — then proceed to step 3.
+   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more Claude Code sessions. In each one say: `ingest next batch` (or `/wiki:ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki:finalize-ingest`) here." — then proceed to step 3.
 3. **Process batch 1**: first claim it atomically:
    ```bash
    mv raw/_import-batch-1.txt raw/_import-batch-1.claimed.txt

@@ -39,8 +39,10 @@ These Claude Code slash commands are available for ingesting notes:
 | Command | Description |
 | ------- | ----------- |
 | `/wiki:ingest` | Start a new ingest of raw notes (Session 1 — coordinator flow) |
-| `/wiki:ingest-next` | Continue ingesting the next batch (Sessions 2–N flow) |
-| `/wiki:finalize` | Finalize the ingest: merge logs, rebuild indexes, run post-processing |
+| `/wiki:ingest-next-batch` | Continue ingesting the next batch (Sessions 2–N flow) |
+| `/wiki:finalize-ingest` | Finalize the ingest: merge logs, rebuild indexes, run post-processing |
+
+The `ingest next batch` and `finalize ingest` commands are only needed for importing large amounts of notes. Claude will notify you when you `ingest new notes` and it sees it requires batched importing.
 
 ## Getting started
 
