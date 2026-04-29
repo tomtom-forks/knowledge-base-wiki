@@ -18,7 +18,7 @@ For each markdown file:
   - If ingestion leads to contradictions on a page, clearly mark the contradiction with a short explanation and add frontmatter tag `requires-attention`.
   - Cross-reference related pages using `[[wikilinks]]`.
 - Do NOT update `wiki/<topic>/_index.md` during a session (deferred to finalization).
-- Append one log entry to the session log `raw/.session-N.jsonl` (one JSON object per line):
+- Append one log entry to the session log `raw/_batch-log-N.jsonl` (one JSON object per line):
 ```json
 {"date":"YYYY-MM-DD","session":N,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/concepts/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
 ```
@@ -36,16 +36,16 @@ When asked to "ingest new raw notes" (or similar):
 
 1. **Partition** (run automatically): `bash scripts/create-import-batches.sh`
    - Default max batch size is 50 files. Override with `--max-size N` (e.g. `--max-size 20`).
-   - This removes any old `raw/_import-batch-*.txt` remnants and creates fresh ones.
+   - This removes any old `raw/_batch-import-*.txt` remnants and creates fresh ones.
    - If output says "Nothing to ingest", report that and stop.
-2. **Check how many batches have content**: count non-empty `raw/_import-batch-*.txt` files (the script prints the count).
+2. **Check how many batches have content**: count non-empty `raw/_batch-import-*.txt` files (the script prints the count).
    - **If only 1 batch has content**: process it (step 3) and immediately proceed to Finalization — do NOT ask the user to open more sessions.
    - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more Claude Code sessions. In each one say: `ingest next batch` (or `/wiki:ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki:finalize-ingest`) here." — then proceed to step 3.
 3. **Process batch 1**: first claim it atomically:
    ```bash
-   mv raw/_import-batch-1.txt raw/_import-batch-1.claimed.txt
+   mv raw/_batch-import-1.txt raw/_batch-import-1.claimed.txt
    ```
-   Then read `raw/_import-batch-1.claimed.txt`. For each file listed, apply per-note ingestion above. Use sub-agents and process in batches of 10 to conserve context. After finishing all files, delete `raw/_import-batch-1.claimed.txt`.
+   Then read `raw/_batch-import-1.claimed.txt`. For each file listed, apply per-note ingestion above. Use sub-agents and process in batches of 10 to conserve context. After finishing all files, delete `raw/_batch-import-1.claimed.txt`.
 4. **If single-batch**: proceed directly to Finalization. **If multi-batch**: report notes processed/pages created/updated, then await "finalize ingest".
 
 ## Sessions 2–N
@@ -54,11 +54,11 @@ When asked to "ingest next batch":
 
 1. **Claim a batch atomically**: run the following to find and claim the next unclaimed batch:
    ```bash
-   for f in $(ls raw/_import-batch-[0-9]*.txt 2>/dev/null | grep -v '\.claimed\.' | sort -V); do
+   for f in $(ls raw/_batch-import-[0-9]*.txt 2>/dev/null | grep -v '\.claimed\.' | sort -V); do
      mv "$f" "${f%.txt}.claimed.txt" 2>/dev/null && echo "${f%.txt}.claimed.txt" && break
    done
    ```
-   - If the loop prints a filename (e.g. `raw/_import-batch-2.claimed.txt`) → that is your batch; proceed.
+   - If the loop prints a filename (e.g. `raw/_batch-import-2.claimed.txt`) → that is your batch; proceed.
    - If nothing is printed → all batches are taken or already done; report "No unclaimed batch found" and stop.
 2. For each file listed in the claimed file, apply per-note ingestion above. Use sub-agents and process in batches of 10.
 3. After finishing all files, delete the `.claimed.txt` file.
@@ -68,7 +68,7 @@ When asked to "ingest next batch":
 
 When asked to "finalize ingest":
 
-1. **Merge logs**: append all `raw/.session-*.jsonl` to `wiki/log.jsonl` (create `wiki/log.jsonl` if it doesn't exist). Then delete all `raw/.session-*.jsonl` and any remaining `raw/_import-batch-*.txt`.
+1. **Merge logs**: append all `raw/_batch-log-*.jsonl` to `wiki/log.jsonl` (create `wiki/log.jsonl` if it doesn't exist). Then delete all `raw/_batch-log-*.jsonl` and any remaining `raw/_batch-import-*.txt`.
 2. **Rebuild indexes**: for every topic directory in `wiki/`:
    - List all `.md` files in the directory (excluding `_index.md`).
    - For each file: extract the title (first `#` heading, or filename without extension) and a 1-sentence summary (first non-heading, non-empty paragraph).
@@ -103,7 +103,7 @@ source_url: <url>
 fetched: YYYY-MM-DD
 ---
 ```
-- Continue with per-note ingestion for that file (as a single-file session — write to `raw/.session-1.jsonl`, then immediately finalize).
+- Continue with per-note ingestion for that file (as a single-file session — write to `raw/_batch-log-1.jsonl`, then immediately finalize).
 
 **Refresh:** "refresh this Confluence page" → re-fetch, overwrite cache, diff vs previous, flag changes affecting existing wiki pages.
 

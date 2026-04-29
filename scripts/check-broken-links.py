@@ -4,7 +4,6 @@ check-broken-links.py — Scan Markdown files for broken internal and external l
 
 Output is structured JSON designed for AI consumption:
   {
-    "summary": { "files_checked": N, "links_checked": N, "broken": N, "skipped_external": N },
     "broken_links": [
       {
         "file": "relative/path/to/file.md",
@@ -16,6 +15,7 @@ Output is structured JSON designed for AI consumption:
       },
       ...
     ],
+    "summary": { "files_checked": N, "links_checked": N, "broken": N, "skipped_external": N },
     "errors": [ "...", ... ]
   }
 
@@ -514,8 +514,8 @@ def check_vault(root: Path, args) -> dict:
 
     if not root.is_dir():
         return {
-            "summary": {"files_checked": 0, "links_checked": 0, "broken": 0, "skipped_external": 0},
             "broken_links": [],
+            "summary": {"files_checked": 0, "links_checked": 0, "broken": 0, "skipped_external": 0},
             "errors": [f"Root directory not found: {root}"]
         }
 
@@ -692,8 +692,8 @@ def check_vault(root: Path, args) -> dict:
         summary["removed_files"] = removed_files
 
     return {
-        "summary": summary,
         "broken_links": broken,
+        "summary": summary,
         "errors": errors,
     }
 
