@@ -17,6 +17,8 @@ For each markdown file:
   - For people: only create pages for confirmed employees, or people mentioned in multiple different sources. Require both first and last name. Ignore titles ("Dr.", "PhD.", "MD.") when parsing names — "John Smith, Dr." is one person named John Smith.
   - If ingestion leads to contradictions on a page, clearly mark the contradiction with a short explanation and add frontmatter tag `requires-attention`.
   - Cross-reference related pages using `[[wikilinks]]`.
+  - **Wikilink rule:** Only wikilink to a page that (a) already exists in `wiki/`, or (b) you are creating/have created in this same session. If you identify a topic worth referencing but cannot fully describe it yet, create a minimal stub: frontmatter with `type` and `stub: true`, a `# Title` heading, and one italic line noting the source file. Stubs count as `pages_created` in the session log.
+  - **Stub expansion rule:** Before creating a new page, check if a stub already exists at that path (frontmatter contains `stub: true`). If so, expand it into a full page — remove `stub: true`, fill in proper content, and count it as `pages_updated` (not `pages_created`) in the session log.
 - Do NOT update `wiki/<topic>/_index.md` during a session (deferred to finalization).
 - Append one log entry to the session log `raw/_batch-log-N.jsonl` (one JSON object per line):
 ```json
@@ -89,7 +91,8 @@ When asked to "finalize ingest":
 
      <One-sentence description of what this topic type covers.>
      ```
-3. **Summarize**: present a table of all pages created/updated across all sessions (read from the just-merged session log data).
+3. **Report stubs**: scan all `wiki/**/*.md` for files with `stub: true` in frontmatter. If any exist, list them in a "Stubs still needing expansion" section so the user knows what gaps remain.
+4. **Summarize**: present a table of all pages created/updated across all sessions (read from the just-merged session log data).
 4. **Post-processing menu** (`AskUserQuestion` with `multiSelect: true`). Always run QMD before lint:
    - **All (recommended)** — QMD text + vector embedding + lint; supersedes individual selections
    - **QMD text re-index** (`qmd update`) — fast, keywords only
