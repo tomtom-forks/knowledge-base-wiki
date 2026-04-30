@@ -65,13 +65,14 @@ Then, for each markdown file to ingest:
   - For people: only create pages for confirmed employees, or people mentioned in multiple different sources. Require both first and last name. Ignore titles ("Dr.", "PhD.", "MD.") when parsing names — "John Smith, Dr." is one person named John Smith.
   - Check if the ingestion leads to a contradiction on the page. If ingestion leads to contradictions on a page, clearly mark the contradiction with a short explanation and add frontmatter tag `contradiction: true`.
   - Cross-reference related pages using `[[wikilinks]]`.
-  - **Wikilink rule:** Only wikilink to a page that (a) already exists in `wiki/`, or (b) you are creating/have created in this same session. If you identify a topic worth referencing but cannot fully describe it yet, create a minimal stub: frontmatter with `type` and `stub: true`, a `# Title` heading, and one italic line noting the source file. Stubs count as `pages_created` in the session log.
+  - **Wikilink rule:** Only wikilink to a page that (a) already exists in `wiki/`, or (b) you are creating/have created in this same session. If you identify a topic worth referencing but cannot describe it yet, create a minimal stub: frontmatter with `type` and `stub: true`, a `# Title` heading, and one italic line noting the source file. Stubs count as `pages_created` in the session log. Don't add the "stub: true" tag if you were able to generate at least minimal information on the subject.
   - **Stub expansion rule:** Before creating a new page, check if a stub already exists at that path (frontmatter contains `stub: true`). If so, expand it into a full page — remove `stub: true`, fill in proper content, and count it as `pages_updated` (not `pages_created`) in the session log.
 - Do NOT update `wiki/<topic>/_index.md` during a session (deferred to finalization).
 - Append one log entry to the session log `.import/batch-log-N.jsonl` for the **original** filename you had to ingest (one JSON object per line); this could be markdown file, but also an `.eml`, `.vtt` or other other file (before you converted it to markdown):
 ```json
 {"date":"YYYY-MM-DD HH:mm:ss","session":N,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/concepts/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
 ```
+- Append additional lines (same format) for ALL converted markdown files you have ingested.
 
 Use sub-agents and process in batches of 10 to conserve context.
 
