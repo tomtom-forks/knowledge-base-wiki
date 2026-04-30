@@ -614,6 +614,67 @@ def remove_orphan_false_from_frontmatter(file_path: Path) -> bool:
     return False
 
 
+def has_stub_in_frontmatter(content: str) -> bool:
+    """Return True if YAML frontmatter contains 'stub: true'."""
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    for line in lines[1:]:
+        if line.strip() in ("---", "..."):
+            break
+        if re.match(r'\s*stub\s*:\s*true\s*$', line):
+            return True
+    return False
+
+
+def remove_stub_from_frontmatter(file_path: Path) -> bool:
+    """Remove 'stub: true' from the file's YAML frontmatter. Returns True if changed."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    lines = content.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return False
+    fm_end = None
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() in ("---", "..."):
+            fm_end = i
+            break
+    if fm_end is None:
+        return False
+    new_lines = [
+        line for i, line in enumerate(lines)
+        if not (0 < i < fm_end and re.match(r'\s*stub\s*:\s*true\s*$', line.rstrip('\r\n')))
+    ]
+    if len(new_lines) < len(lines):
+        file_path.write_text(''.join(new_lines), encoding="utf-8")
+        return True
+    return False
+
+
+def check_stubs(root: Path, quiet: bool) -> dict:
+    """Find wiki pages (wiki/*/*.md) with 'stub: true' in frontmatter."""
+    wiki_dir = root / "wiki"
+    if not wiki_dir.is_dir():
+        return {"stubs": [], "summary": {"wiki_pages_checked": 0, "stubs_found": 0}}
+
+    stubs = []
+    wiki_pages_checked = 0
+    for md_file in sorted(wiki_dir.glob("*/*.md")):
+        if md_file.name in ("index.md", "_index.md"):
+            continue
+        wiki_pages_checked += 1
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if has_stub_in_frontmatter(content):
+            stubs.append(str(md_file.relative_to(root)))
+
+    return {
+        "stubs": sorted(stubs),
+        "summary": {"wiki_pages_checked": wiki_pages_checked, "stubs_found": len(stubs)},
+    }
+
+
 _RAW_TEXT_EXTENSIONS = {".md", ".txt", ".vtt", ".eml"}
 
 
@@ -1095,6 +1156,19 @@ def format_text(result: dict) -> str:
         else:
             lines.append("No orphan pages found.")
 
+    if "stubs" in result:
+        lines.append("")
+        st_ = result["stubs"]
+        st_s = result.get("stub_summary", {})
+        lines.append(f"STUB CHECK: {st_s.get('wiki_pages_checked', '?')} pages checked, "
+                     f"{st_s.get('stubs_found', len(st_))} stub(s) found.")
+        if st_:
+            lines.append("STUBS (stub: true in frontmatter):")
+            for s in st_:
+                lines.append(f"  {s}")
+        else:
+            lines.append("No stub pages found.")
+
     return "\n".join(lines)
 
 
@@ -1102,27 +1176,28 @@ def format_text(result: dict) -> str:
 # Interactive mode
 # ---------------------------------------------------------------------------
 
-def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
-    """Curses-based TUI for reviewing broken links and orphan pages."""
+def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) -> None:
+    """Curses-based TUI for reviewing broken links, orphan pages, and stub pages."""
     try:
         import curses as _curses
     except ImportError:
         print("Error: curses module not available on this platform.", file=sys.stderr)
         sys.exit(1)
 
-    if not broken_links and not orphans:
-        print("No broken links or orphan pages found.")
+    if not broken_links and not orphans and not stubs:
+        print("No broken links, orphan pages, or stub pages found.")
         return
 
     all_items = [{"_kind": "link", **b} for b in broken_links] + \
-                [{"_kind": "orphan", "file": o} for o in orphans]
+                [{"_kind": "orphan", "file": o} for o in orphans] + \
+                [{"_kind": "stub", "file": s} for s in stubs]
     n = len(all_items)
     states: list = [None] * n
     messages: list = [""] * n
 
     def fmt_line(i: int) -> str:
         item = all_items[i]
-        if item["_kind"] == "orphan":
+        if item["_kind"] in ("orphan", "stub"):
             return f"{i + 1:3d}  file:{item['file']}"
         return f"{i + 1:3d}  file:{truncate_path(item['file'])}, line:{item['line']}, link:{item['target']}"
 
@@ -1177,6 +1252,13 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
         except Exception as e:
             return f"error: {e}"
 
+    def do_remove_stub(i: int) -> str:
+        try:
+            changed = remove_stub_from_frontmatter(root / all_items[i]["file"])
+            return "unstubbed" if changed else "already not a stub"
+        except Exception as e:
+            return f"error: {e}"
+
     def show_orphan_preview(stdscr, entry: dict, idx: int) -> "str | None":
         """Show scrollable file contents for an orphan. Returns 'd', 'k', or None."""
         try:
@@ -1202,6 +1284,76 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
             win.erase()
             win.box()
             title = f" Orphan preview {idx + 1}/{n} "
+            try:
+                win.addstr(0, max(1, (pop_w - len(title)) // 2), title)
+                win.addstr(1, 2, entry["file"][:pop_w - 3])
+                win.addstr(2, 1, sep[:pop_w - 2])
+            except _curses.error:
+                pass
+            for row in range(list_h):
+                li = scroll + row
+                if li >= len(file_lines):
+                    break
+                try:
+                    win.addstr(3 + row, 2, file_lines[li][:inner_w])
+                except _curses.error:
+                    pass
+            try:
+                win.addstr(pop_h - 2, max(1, (pop_w - len(hint)) // 2), hint[:pop_w - 2])
+            except _curses.error:
+                pass
+            win.refresh()
+
+            key = win.getch()
+            if key in (10, 13, ord("q"), ord("Q"), 27):
+                break
+            elif key == _curses.KEY_UP:
+                scroll = max(0, scroll - 1)
+            elif key == _curses.KEY_DOWN:
+                scroll = min(max(0, len(file_lines) - list_h), scroll + 1)
+            elif key == _curses.KEY_PPAGE:
+                scroll = max(0, scroll - list_h)
+            elif key == _curses.KEY_NPAGE:
+                scroll = min(max(0, len(file_lines) - list_h), scroll + list_h)
+            elif key in (ord("d"), ord("D")):
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "d"
+            elif key in (ord("k"), ord("K")):
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "k"
+            elif key in (ord("h"), ord("H")):
+                show_help(stdscr)
+
+        del win
+        stdscr.touchwin()
+        stdscr.refresh()
+        return None
+
+    def show_stub_preview(stdscr, entry: dict, idx: int) -> "str | None":
+        """Show scrollable file contents for a stub. Returns 'd', 'k', or None."""
+        try:
+            file_lines = (root / entry["file"]).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as e:
+            file_lines = [f"(error reading file: {e})"]
+
+        height, width = stdscr.getmaxyx()
+        pop_w = min(max(40, width - 4), width - 2)
+        pop_h = min(max(10, height - 4), height - 2)
+        pop_y = max(0, (height - pop_h) // 2)
+        pop_x = max(0, (width - pop_w) // 2)
+        inner_w = pop_w - 4
+        list_h = pop_h - 5
+
+        win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
+        win.keypad(True)
+        scroll = 0
+        sep = "─" * (pop_w - 2)
+        hint = "[ d=delete   k=keep stub (remove stub: true)   ↑↓/PgUp/PgDn=scroll   h=help   Enter/q=close ]"
+
+        while True:
+            win.erase()
+            win.box()
+            title = f" Stub preview {idx + 1}/{n} "
             try:
                 win.addstr(0, max(1, (pop_w - len(title)) // 2), title)
                 win.addstr(1, 2, entry["file"][:pop_w - 3])
@@ -1592,6 +1744,10 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
             "  d              Delete the orphan page file from disk",
             "  k              Keep orphan, add 'orphan: false' to frontmatter",
             "",
+            "STUB PAGE ACTIONS  (when a stub page is selected)",
+            "  d              Delete the stub page file from disk",
+            "  k              Keep stub, remove 'stub: true' from frontmatter",
+            "",
             "DETAIL / PREVIEW POPUP  (opened with Enter)",
             "  ↑ / ↓          Prev / next item (links); scroll (orphans)",
             "  PgUp / PgDn    Scroll content (orphans)",
@@ -1678,11 +1834,13 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
         _curses.init_pair(8, _curses.COLOR_BLUE, -1)                   # delinked (plain text)
         _curses.init_pair(9, _curses.COLOR_GREEN, -1)                  # kept orphan
         _curses.init_pair(10, _curses.COLOR_RED, -1)                   # unhandled orphan
+        _curses.init_pair(11, _curses.COLOR_CYAN, -1)                  # unhandled stub
 
         selected = 0
         offset = 0
         n_links = sum(1 for it in all_items if it["_kind"] == "link")
-        n_orps = n - n_links
+        n_orps = sum(1 for it in all_items if it["_kind"] == "orphan")
+        n_stubs = sum(1 for it in all_items if it["_kind"] == "stub")
 
         def redraw():
             nonlocal offset
@@ -1690,12 +1848,14 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
             height, width = stdscr.getmaxyx()
             list_height = height - 4
 
-            header = f"Broken links: {n_links}   Orphans: {n_orps}"
+            header = f"Broken links: {n_links}   Orphans: {n_orps}   Stubs: {n_stubs}"
             stdscr.addstr(0, 0, header[:width - 1])
 
             sel_kind = all_items[selected]["_kind"] if n > 0 else "link"
             if sel_kind == "orphan":
                 hint = "UP/DOWN navigate   ENTER=preview   d=delete   k=keep as orphan   h=help   q=quit"
+            elif sel_kind == "stub":
+                hint = "UP/DOWN navigate   ENTER=preview   d=delete   k=keep stub   h=help   q=quit"
             else:
                 hint = "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   p=plain text   f=find link   h=help   q=quit"
             stdscr.addstr(1, 0, hint[:width - 1])
@@ -1713,20 +1873,23 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
                 item = all_items[idx]
                 state = states[idx]
                 is_orphan = item["_kind"] == "orphan"
+                is_stub = item["_kind"] == "stub"
                 if state == "deleted":
-                    prefix = "[DEL] "; state_attr = _curses.color_pair(2)
+                    prefix = "[DELD] "; state_attr = _curses.color_pair(2)
                 elif state == "broken":
-                    prefix = "[BRK] "; state_attr = _curses.color_pair(3)
+                    prefix = "[BRKN] "; state_attr = _curses.color_pair(3)
                 elif state == "replaced":
-                    prefix = "[FIX] "; state_attr = _curses.color_pair(4)
+                    prefix = "[FIXD] "; state_attr = _curses.color_pair(4)
                 elif state == "delinked":
-                    prefix = "[TXT] "; state_attr = _curses.color_pair(8)
+                    prefix = "[TEXT] "; state_attr = _curses.color_pair(8)
                 elif state == "kept":
-                    prefix = "[KPT] "; state_attr = _curses.color_pair(9)
+                    prefix = "[KEEP] "; state_attr = _curses.color_pair(9)
                 elif is_orphan:
-                    prefix = "[ORP] "; state_attr = _curses.color_pair(10)
+                    prefix = "[ORPH] "; state_attr = _curses.color_pair(10)
+                elif is_stub:
+                    prefix = "[STUB] "; state_attr = _curses.color_pair(11)
                 else:
-                    prefix = "      "; state_attr = _curses.A_NORMAL
+                    prefix = "       "; state_attr = _curses.A_NORMAL
                 y = 3 + row
                 avail = width - 1
                 if idx == selected:
@@ -1736,7 +1899,7 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
                         pass
                     continue
                 x = 0
-                if is_orphan:
+                if is_orphan or is_stub:
                     file_w = max(10, avail - len(prefix) - 3 - 7)  # prefix + num(3) + "  file:"(7)
                     segments = [
                         (prefix,                         state_attr),
@@ -1810,6 +1973,16 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
                             res = do_keep_orphan(idx)
                             states[idx] = "kept" if res in ("kept", "already kept") else None
                             messages[idx] = res
+                    elif item["_kind"] == "stub":
+                        action = show_stub_preview(stdscr, item, idx)
+                        if action == "d":
+                            res = do_delete_orphan(idx)
+                            states[idx] = "deleted" if res == "deleted" else None
+                            messages[idx] = "File deleted." if res == "deleted" else res
+                        elif action == "k":
+                            res = do_remove_stub(idx)
+                            states[idx] = "kept" if res == "unstubbed" else None
+                            messages[idx] = "stub: true removed." if res == "unstubbed" else res
                     else:
                         action = show_popup(stdscr, item, idx)
                         if action == "d":
@@ -1848,7 +2021,7 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
             elif key in (ord("d"), ord("D")):
                 if states[selected] is None:
                     item = all_items[selected]
-                    if item["_kind"] == "orphan":
+                    if item["_kind"] in ("orphan", "stub"):
                         res = do_delete_orphan(selected)
                         states[selected] = "deleted" if res == "deleted" else None
                         messages[selected] = "File deleted." if res == "deleted" else res
@@ -1857,10 +2030,15 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
                         states[selected] = "deleted" if res == "deleted" else None
                         messages[selected] = "Link removed." if res == "deleted" else res
             elif key in (ord("k"), ord("K")):
-                if states[selected] is None and all_items[selected]["_kind"] == "orphan":
-                    res = do_keep_orphan(selected)
-                    states[selected] = "kept" if res in ("kept", "already kept") else None
-                    messages[selected] = res
+                if states[selected] is None:
+                    if all_items[selected]["_kind"] == "orphan":
+                        res = do_keep_orphan(selected)
+                        states[selected] = "kept" if res in ("kept", "already kept") else None
+                        messages[selected] = res
+                    elif all_items[selected]["_kind"] == "stub":
+                        res = do_remove_stub(selected)
+                        states[selected] = "kept" if res == "unstubbed" else None
+                        messages[selected] = "stub: true removed." if res == "unstubbed" else res
             elif key in (ord("b"), ord("B")):
                 if states[selected] is None and all_items[selected]["_kind"] == "link":
                     res = do_broken(selected)
@@ -1881,16 +2059,19 @@ def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
 
     _curses.wrapper(curses_main)
 
-    deleted_links   = sum(1 for i, s in enumerate(states) if s == "deleted"  and all_items[i]["_kind"] == "link")
-    deleted_orphans = sum(1 for i, s in enumerate(states) if s == "deleted"  and all_items[i]["_kind"] == "orphan")
+    deleted_links   = sum(1 for i, s in enumerate(states) if s == "deleted" and all_items[i]["_kind"] == "link")
+    deleted_orphans = sum(1 for i, s in enumerate(states) if s == "deleted" and all_items[i]["_kind"] == "orphan")
+    deleted_stubs   = sum(1 for i, s in enumerate(states) if s == "deleted" and all_items[i]["_kind"] == "stub")
     broken_count    = sum(1 for s in states if s == "broken")
     replaced_count  = sum(1 for s in states if s == "replaced")
     delinked_count  = sum(1 for s in states if s == "delinked")
-    kept_count      = sum(1 for s in states if s == "kept")
+    kept_orphans    = sum(1 for i, s in enumerate(states) if s == "kept" and all_items[i]["_kind"] == "orphan")
+    kept_stubs      = sum(1 for i, s in enumerate(states) if s == "kept" and all_items[i]["_kind"] == "stub")
     skipped = n - sum(1 for s in states if s is not None)
     print(f"\nSession complete: {deleted_links} links deleted, {broken_count} marked broken, "
           f"{delinked_count} plain text, {replaced_count} replaced, "
-          f"{deleted_orphans} orphan pages deleted, {kept_count} orphans kept, {skipped} skipped.")
+          f"{deleted_orphans} orphan pages deleted, {kept_orphans} orphans kept, "
+          f"{deleted_stubs} stub pages deleted, {kept_stubs} stubs resolved, {skipped} skipped.")
 
 
 # ---------------------------------------------------------------------------
@@ -2065,6 +2246,10 @@ def main():
     result["orphans"] = orphan_result["orphans"]
     result["orphan_summary"] = orphan_result["summary"]
 
+    stub_result = check_stubs(root, args.quiet)
+    result["stubs"] = stub_result["stubs"]
+    result["stub_summary"] = stub_result["summary"]
+
     if getattr(args, "fix_orphans", False) and orphan_result["orphans"]:
         fix_result = fix_orphans(orphan_result["orphans"], root, args.quiet)
         result["orphan_fix"] = fix_result
@@ -2076,10 +2261,11 @@ def main():
     has_issues = (
         result["summary"]["broken"] > 0
         or result.get("orphan_summary", {}).get("orphans_found", 0) > 0
+        or result.get("stub_summary", {}).get("stubs_found", 0) > 0
     )
 
     if args.interactive:
-        run_interactive(result["broken_links"], result.get("orphans", []), root)
+        run_interactive(result["broken_links"], result.get("orphans", []), result.get("stubs", []), root)
     elif args.format == "json":
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:

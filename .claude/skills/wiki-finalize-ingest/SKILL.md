@@ -52,7 +52,7 @@ If any exist, list them in a "Stubs still needing expansion" section so the user
 
 ## Step 4 — Summarize
 
-Present a table of all pages created/updated across all sessions (read from the just-merged session log data).
+Present a table of all pages created/updated across all sessions (read from the just-merged session log data). 
 
 ## Step 5 — Post-processing menu
 
@@ -62,3 +62,7 @@ Use `AskUserQuestion` with `multiSelect: true`. Always run QMD before lint:
 - **Lint** — health check: orphans, contradictions, gaps
 - **QMD text re-index** (`qmd update`) — fast, keywords only
 - **QMD vector embedding** (`qmd update && qmd embed`) — slow, ~2 GB models; supersedes text-only if both selected
+
+## Step 6 - End message
+
+After running the lint check or QMD do not suggest to run finalize again. Do propose to run `scripts/lint-wiki-pages.py --interactive` if any problems were found during the lint check.
