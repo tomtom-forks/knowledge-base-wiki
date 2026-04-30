@@ -4,10 +4,13 @@ Before your start, read the file `config/personal_info.md` (it may not exist, wh
 Use the information from that file to make your responses more relevant to me.
 
 Use the appropriate `wiki` skill for each action:
-- **Ingest** (notes, Confluence, bulk) — `wiki-ingest` skill
+- **Ingest** (notes, Confluence, start bulk) — `wiki-ingest` skill
+- **Ingest next batch** (parallel sessions) — `wiki-ingest-next-batch` skill
+- **Finalize ingest** (merge logs, rebuild indexes) — `wiki-finalize-ingest` skill
 - **Query** — `wiki-query` skill (default: use this when the user asks any question)
-- **Health check / lint** — `wiki-health-check` skill
+- **Health check / lint** — `wiki-lint` skill
 - **Creating wiki pages** — `wiki-templates` skill
+- **Add missing page** — `wiki-add-missing` skill
 
 # Topic types in `wiki/`
 

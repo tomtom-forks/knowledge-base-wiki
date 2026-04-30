@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-check-broken-links.py — Scan Markdown files for broken internal and external links.
+lint-wiki-pages.py — Scan Markdown files for broken internal and external links.
 
 Output is structured JSON designed for AI consumption:
   {
@@ -230,6 +230,27 @@ def resolve_wikilink(target: str, root: Path, all_md_stems: dict[str, list[Path]
         return True
 
     return False
+
+
+def resolve_wikilink_to_path(target: str, root: Path, stem_index: dict[str, list[Path]]) -> "Path | None":
+    """Resolve a wikilink target to an actual Path, or None if unresolvable or ambiguous."""
+    candidate = Path(target)
+    has_known_ext = candidate.suffix.lower() in KNOWN_EXTENSIONS
+
+    exact = root / target
+    if exact.exists():
+        return exact
+
+    if not has_known_ext:
+        exact_md = root / (target + ".md")
+        if exact_md.exists():
+            return exact_md
+
+    stem = candidate.stem if has_known_ext else candidate.name
+    matches = stem_index.get(stem, [])
+    if len(matches) == 1:
+        return matches[0]
+    return None  # not found or ambiguous
 
 
 def resolve_mdlink(target: str, source_file: Path, root: Path, all_md_stems: dict[str, list[Path]]) -> bool:
@@ -539,6 +560,288 @@ def build_stem_index(root: Path) -> dict[str, list[Path]]:
     return index
 
 
+def has_orphan_false_in_frontmatter(content: str) -> bool:
+    """Return True if YAML frontmatter contains 'orphan: false'."""
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return False
+    for line in lines[1:]:
+        if line.strip() in ("---", "..."):
+            break
+        if re.match(r'\s*orphan\s*:\s*false\s*$', line):
+            return True
+    return False
+
+
+def add_orphan_false_to_frontmatter(file_path: Path) -> bool:
+    """Add 'orphan: false' to the file's YAML frontmatter. Returns True if changed."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    if has_orphan_false_in_frontmatter(content):
+        return False
+    lines = content.splitlines(keepends=True)
+    if lines and lines[0].strip() == "---":
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() in ("---", "..."):
+                lines.insert(i, "orphan: false\n")
+                file_path.write_text(''.join(lines), encoding="utf-8")
+                return True
+        return False  # unclosed frontmatter
+    else:
+        file_path.write_text("---\norphan: false\n---\n" + content, encoding="utf-8")
+        return True
+
+
+def remove_orphan_false_from_frontmatter(file_path: Path) -> bool:
+    """Remove 'orphan: false' from the file's YAML frontmatter. Returns True if changed."""
+    content = file_path.read_text(encoding="utf-8", errors="replace")
+    lines = content.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        return False
+    fm_end = None
+    for i, line in enumerate(lines[1:], 1):
+        if line.strip() in ("---", "..."):
+            fm_end = i
+            break
+    if fm_end is None:
+        return False
+    new_lines = [
+        line for i, line in enumerate(lines)
+        if not (0 < i < fm_end and re.match(r'\s*orphan\s*:\s*false\s*$', line.rstrip('\r\n')))
+    ]
+    if len(new_lines) < len(lines):
+        file_path.write_text(''.join(new_lines), encoding="utf-8")
+        return True
+    return False
+
+
+_RAW_TEXT_EXTENSIONS = {".md", ".txt", ".vtt", ".eml"}
+
+
+def has_raw_reference(stem: str, raw_dir: Path) -> bool:
+    """Return True if any text file in raw/ contains a plain-text reference to stem."""
+    if not raw_dir.is_dir():
+        return False
+    target_re = re.compile(r'(?<!\w)' + re.escape(stem) + r'(?:\.md)?(?!\w)')
+    for raw_file in raw_dir.rglob("*"):
+        if not raw_file.is_file() or raw_file.suffix.lower() not in _RAW_TEXT_EXTENSIONS:
+            continue
+        try:
+            content = raw_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if target_re.search(content):
+            return True
+    return False
+
+
+def check_orphans(root: Path, quiet: bool) -> dict:
+    """Find wiki pages (wiki/*/*.md) with no backlinks except from index files."""
+    wiki_dir = root / "wiki"
+    if not wiki_dir.is_dir():
+        return {"orphans": [], "summary": {"wiki_pages_checked": 0, "orphans_found": 0}}
+
+    # Collect candidate pages: exactly wiki/<subdir>/<file>.md
+    # Exclude index files and pages that explicitly declare orphan: false
+    wiki_pages: list[Path] = []
+    for md_file in sorted(wiki_dir.glob("*/*.md")):
+        if md_file.name in ("index.md", "_index.md"):
+            continue
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            content = ""
+        if has_orphan_false_in_frontmatter(content):
+            continue
+        wiki_pages.append(md_file)
+
+    if not quiet:
+        print(f"Checking orphans across {len(wiki_pages)} wiki pages ...", file=sys.stderr)
+
+    # Build stem index scoped to wiki pages only (for unambiguous resolution)
+    stem_index: dict[str, list[Path]] = {}
+    for p in wiki_pages:
+        stem_index.setdefault(p.stem, []).append(p)
+
+    # Build backlink map: resolved_path -> set of source_rel (non-index sources only)
+    backlinks: dict[str, set[str]] = {}
+    scanned = 0
+    for md_file in sorted(root.rglob("*.md")):
+        rel = md_file.relative_to(root)
+        if any(part.startswith(".") for part in rel.parts[:-1]):
+            continue
+        if md_file.name == "SKILL.md":
+            continue
+        if md_file.name in ("index.md", "_index.md"):
+            continue  # index pages don't count as backlink sources
+
+        try:
+            content = md_file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+
+        scanned += 1
+        if not quiet and scanned % 50 == 0:
+            print(f"\r  {scanned} files scanned for backlinks ...", end="", flush=True, file=sys.stderr)
+
+        for _, link_type, _, target in extract_links(content, include_images=False):
+            if link_type != "wikilink":
+                continue
+            if not target or target.startswith("#") or is_external(target):
+                continue
+            resolved = resolve_wikilink_to_path(target, root, stem_index)
+            if resolved is not None:
+                backlinks.setdefault(str(resolved), set()).add(str(rel))
+
+    if not quiet:
+        print(f"\r  {scanned} files scanned for backlinks — done.        ", file=sys.stderr)
+
+    orphans = [
+        str(p.relative_to(root))
+        for p in wiki_pages
+        if not backlinks.get(str(p))
+    ]
+
+    return {
+        "orphans": sorted(orphans),
+        "summary": {
+            "wiki_pages_checked": len(wiki_pages),
+            "orphans_found": len(orphans),
+        },
+    }
+
+
+def replace_plain_references_in_content(content: str, stem: str) -> tuple[str, int]:
+    """
+    Replace plain-text occurrences of `stem` (and `stem.md`) with `[[stem]]`.
+    Skips YAML frontmatter, existing wikilinks, markdown links, and inline code.
+    """
+    target_re = re.compile(r'(?<!\w)' + re.escape(stem) + r'(?:\.md)?(?!\w)')
+    # Regions to skip: [[wikilinks]], [text](url) markdown links, `inline code`
+    skip_re = re.compile(r'\[\[[^\]\n]+\]\]|\[(?:[^\]\n]*)\]\([^)\n]*\)|`[^`\n]*`')
+
+    lines = content.splitlines(keepends=True)
+
+    # Find frontmatter end (lines to skip at top)
+    fm_end = 0
+    if lines and lines[0].strip() == "---":
+        for i, line in enumerate(lines[1:], 1):
+            if line.strip() in ("---", "..."):
+                fm_end = i + 1
+                break
+
+    result = []
+    count = 0
+    for i, line in enumerate(lines):
+        if i < fm_end:
+            result.append(line)
+            continue
+        parts = []
+        last = 0
+        for m in skip_re.finditer(line):
+            safe = line[last:m.start()]
+            replaced, n = target_re.subn(f'[[{stem}]]', safe)
+            parts.append(replaced)
+            count += n
+            parts.append(m.group(0))
+            last = m.end()
+        safe = line[last:]
+        replaced, n = target_re.subn(f'[[{stem}]]', safe)
+        parts.append(replaced)
+        count += n
+        result.append(''.join(parts))
+
+    return ''.join(result), count
+
+
+def fix_orphans(orphans: list[str], root: Path, quiet: bool) -> dict:
+    """
+    For each orphaned wiki page:
+    - Find plain-text references in wiki/ and replace with wikilinks (only wiki/ modified).
+    - If wiki/ references were linked: remove 'orphan: false' from the page's frontmatter.
+    - If no wiki/ references found but raw/ mentions the stem: add 'orphan: false' to the
+      page's frontmatter to acknowledge it is known from raw context.
+    Raw files are never modified.
+    """
+    wiki_dir = root / "wiki"
+    raw_dir = root / "raw"
+    if not wiki_dir.is_dir():
+        return {"fixed_references": 0, "files_changed": 0, "orphans_resolved": 0, "details": []}
+
+    wiki_files = sorted(wiki_dir.rglob("*.md"))
+
+    total_refs = 0
+    total_files = 0
+    details = []
+
+    for orphan_rel in orphans:
+        orphan_path = root / orphan_rel
+        stem = orphan_path.stem
+
+        if len(stem) < 3:
+            continue  # too short — would cause too many false positives
+
+        refs_linked = 0
+        files_touched: list[str] = []
+
+        for wiki_file in wiki_files:
+            if wiki_file == orphan_path:
+                continue  # don't add self-references
+
+            try:
+                content = wiki_file.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+
+            if stem not in content:
+                continue  # fast path
+
+            new_content, n = replace_plain_references_in_content(content, stem)
+            if n:
+                wiki_file.write_text(new_content, encoding="utf-8")
+                refs_linked += n
+                total_files += 1
+                files_touched.append((str(wiki_file.relative_to(root)), n))
+
+        # Update frontmatter on the orphan page itself
+        fm_action: "str | None" = None
+        if refs_linked > 0:
+            # Page now has real wiki backlinks — remove orphan: false if present
+            if remove_orphan_false_from_frontmatter(orphan_path):
+                fm_action = "removed_orphan_false"
+        else:
+            # No wiki links found — check raw/ for any mention
+            if has_raw_reference(stem, raw_dir):
+                if add_orphan_false_to_frontmatter(orphan_path):
+                    fm_action = "added_orphan_false"
+
+        if not quiet:
+            if refs_linked > 0:
+                file_list = ", ".join(f"{f} ({n})" for f, n in files_touched)
+                print(f"  {orphan_rel}: [[{stem}]] linked in {file_list}", file=sys.stderr)
+            if fm_action == "added_orphan_false":
+                print(f"  {orphan_rel}: raw reference found → orphan: false added", file=sys.stderr)
+            elif fm_action == "removed_orphan_false":
+                print(f"  {orphan_rel}: orphan: false removed (now has wiki links)", file=sys.stderr)
+
+        if refs_linked or fm_action:
+            total_refs += refs_linked
+            details.append({
+                "orphan": orphan_rel,
+                "stem": stem,
+                "references_linked": refs_linked,
+                "files_changed": [f for f, _ in files_touched],
+                "frontmatter": fm_action,
+            })
+
+    return {
+        "fixed_references": total_refs,
+        "files_changed": total_files,
+        "orphans_resolved": len([d for d in details if d["references_linked"] > 0]),
+        "orphans_acknowledged": len([d for d in details if d["frontmatter"] == "added_orphan_false"]),
+        "details": details,
+    }
+
+
 def check_vault(root: Path, args) -> dict:
     errors = []
     broken = []
@@ -771,7 +1074,26 @@ def format_text(result: dict) -> str:
             if b.get("removed"):
                 lines.append("    action: marked as broken in file")
         lines.append("")
-        lines.append("Tip: run with --interactive to fix broken links one by one.")
+
+    if "orphans" in result:
+        lines.append("")
+        os_ = result["orphans"]
+        os_s = result.get("orphan_summary", {})
+        fix = result.get("orphan_fix")
+        if fix:
+            parts = [f"{fix['orphans_resolved']} orphan(s) resolved via wiki links"]
+            if fix.get("orphans_acknowledged"):
+                parts.append(f"{fix['orphans_acknowledged']} acknowledged via raw reference (orphan: false added)")
+            lines.append(f"ORPHAN FIX: {', '.join(parts)}; "
+                         f"{fix['fixed_references']} reference(s) linked in {fix['files_changed']} file(s).")
+        lines.append(f"ORPHAN CHECK: {os_s.get('wiki_pages_checked', '?')} pages checked, "
+                     f"{os_s.get('orphans_found', len(os_))} orphan(s) remaining.")
+        if os_:
+            lines.append("ORPHANS (no incoming links except from index pages):")
+            for o in os_:
+                lines.append(f"  {o}")
+        else:
+            lines.append("No orphan pages found.")
 
     return "\n".join(lines)
 
@@ -780,25 +1102,29 @@ def format_text(result: dict) -> str:
 # Interactive mode
 # ---------------------------------------------------------------------------
 
-def run_interactive(broken_links: list, root: Path) -> None:
-    """Curses-based TUI for reviewing and fixing broken links one by one."""
+def run_interactive(broken_links: list, orphans: list, root: Path) -> None:
+    """Curses-based TUI for reviewing broken links and orphan pages."""
     try:
         import curses as _curses
     except ImportError:
         print("Error: curses module not available on this platform.", file=sys.stderr)
         sys.exit(1)
 
-    if not broken_links:
-        print("No broken links found.")
+    if not broken_links and not orphans:
+        print("No broken links or orphan pages found.")
         return
 
-    n = len(broken_links)
-    states: list = [None] * n      # None | 'deleted' | 'broken'
+    all_items = [{"_kind": "link", **b} for b in broken_links] + \
+                [{"_kind": "orphan", "file": o} for o in orphans]
+    n = len(all_items)
+    states: list = [None] * n
     messages: list = [""] * n
 
     def fmt_line(i: int) -> str:
-        b = broken_links[i]
-        return f"{i + 1:3d}  file:{truncate_path(b['file'])}, line:{b['line']}, link:{b['target']}"
+        item = all_items[i]
+        if item["_kind"] == "orphan":
+            return f"{i + 1:3d}  file:{item['file']}"
+        return f"{i + 1:3d}  file:{truncate_path(item['file'])}, line:{item['line']}, link:{item['target']}"
 
     def do_delete(i: int) -> str:
         entry = broken_links[i]
@@ -836,6 +1162,90 @@ def run_interactive(broken_links: list, root: Path) -> None:
             return "delinked" if n else "no match — may already be handled"
         except Exception as e:
             return f"error: {e}"
+
+    def do_delete_orphan(i: int) -> str:
+        try:
+            (root / all_items[i]["file"]).unlink()
+            return "deleted"
+        except Exception as e:
+            return f"error: {e}"
+
+    def do_keep_orphan(i: int) -> str:
+        try:
+            changed = add_orphan_false_to_frontmatter(root / all_items[i]["file"])
+            return "kept" if changed else "already kept"
+        except Exception as e:
+            return f"error: {e}"
+
+    def show_orphan_preview(stdscr, entry: dict, idx: int) -> "str | None":
+        """Show scrollable file contents for an orphan. Returns 'd', 'k', or None."""
+        try:
+            file_lines = (root / entry["file"]).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError as e:
+            file_lines = [f"(error reading file: {e})"]
+
+        height, width = stdscr.getmaxyx()
+        pop_w = min(max(40, width - 4), width - 2)
+        pop_h = min(max(10, height - 4), height - 2)
+        pop_y = max(0, (height - pop_h) // 2)
+        pop_x = max(0, (width - pop_w) // 2)
+        inner_w = pop_w - 4
+        list_h = pop_h - 5
+
+        win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
+        win.keypad(True)
+        scroll = 0
+        sep = "─" * (pop_w - 2)
+        hint = "[ d=delete   k=keep as orphan   ↑↓/PgUp/PgDn=scroll   h=help   Enter/q=close ]"
+
+        while True:
+            win.erase()
+            win.box()
+            title = f" Orphan preview {idx + 1}/{n} "
+            try:
+                win.addstr(0, max(1, (pop_w - len(title)) // 2), title)
+                win.addstr(1, 2, entry["file"][:pop_w - 3])
+                win.addstr(2, 1, sep[:pop_w - 2])
+            except _curses.error:
+                pass
+            for row in range(list_h):
+                li = scroll + row
+                if li >= len(file_lines):
+                    break
+                try:
+                    win.addstr(3 + row, 2, file_lines[li][:inner_w])
+                except _curses.error:
+                    pass
+            try:
+                win.addstr(pop_h - 2, max(1, (pop_w - len(hint)) // 2), hint[:pop_w - 2])
+            except _curses.error:
+                pass
+            win.refresh()
+
+            key = win.getch()
+            if key in (10, 13, ord("q"), ord("Q"), 27):
+                break
+            elif key == _curses.KEY_UP:
+                scroll = max(0, scroll - 1)
+            elif key == _curses.KEY_DOWN:
+                scroll = min(max(0, len(file_lines) - list_h), scroll + 1)
+            elif key == _curses.KEY_PPAGE:
+                scroll = max(0, scroll - list_h)
+            elif key == _curses.KEY_NPAGE:
+                scroll = min(max(0, len(file_lines) - list_h), scroll + list_h)
+            elif key in (ord("d"), ord("D")):
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "d"
+            elif key in (ord("k"), ord("K")):
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "k"
+            elif key in (ord("h"), ord("H")):
+                show_help(stdscr)
+
+        del win
+        stdscr.touchwin()
+        stdscr.refresh()
+        return None
 
     def read_source_context(entry: dict, context: int = 2) -> list:
         """Return list of (lineno, text, is_current) for the line and `context` lines around it."""
@@ -1080,7 +1490,7 @@ def run_interactive(broken_links: list, root: Path) -> None:
         pop_x = max(0, (width - pop_w) // 2)
 
         sep = "─" * (pop_w - 2)
-        hint = "[ ↑/↓ prev/next   d=delete   b=mark broken   r=plain text   f=find link   Enter/q=close ]"
+        hint = "[ ↑/↓ prev/next   d=delete   b=mark broken   p=plain text   f=find link   h=help   Enter/q=close ]"
 
         win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
         win.keypad(True)
@@ -1146,17 +1556,113 @@ def run_interactive(broken_links: list, root: Path) -> None:
             elif key in (ord("b"), ord("B")):
                 action = "b"
                 break
-            elif key in (ord("r"), ord("R")):
+            elif key in (ord("p"), ord("P")):
                 action = "r"
                 break
             elif key in (ord("f"), ord("F")):
                 action = "f"
                 break
+            elif key in (ord("h"), ord("H")):
+                show_help(stdscr)
+                win.touchwin()
+                win.refresh()
 
         del win
         stdscr.touchwin()
         stdscr.refresh()
         return action
+
+    def show_help(stdscr) -> None:
+        """Show a full-command help dialog. Close with Enter, Esc, or h."""
+        help_lines = [
+            "NAVIGATION",
+            "  ↑ / ↓          Navigate list items",
+            "  PgUp / PgDn    Jump a full page",
+            "  Enter          Open detail / preview popup",
+            "  h              Show this help",
+            "  q / Esc        Quit",
+            "",
+            "BROKEN LINK ACTIONS  (when a broken link is selected)",
+            "  d              Delete the broken link from the file",
+            "  b              Rewrite as [[broken-link|…]]",
+            "  p              Strip [[ ]] brackets — leave plain text",
+            "  f              Open file browser to pick a replacement",
+            "",
+            "ORPHAN PAGE ACTIONS  (when an orphan page is selected)",
+            "  d              Delete the orphan page file from disk",
+            "  k              Keep orphan, add 'orphan: false' to frontmatter",
+            "",
+            "DETAIL / PREVIEW POPUP  (opened with Enter)",
+            "  ↑ / ↓          Prev / next item (links); scroll (orphans)",
+            "  PgUp / PgDn    Scroll content (orphans)",
+            "  d  b  p  f  k  Same actions as in the main list",
+            "  h              Show this help",
+            "  Enter / q      Close popup",
+        ]
+
+        height, width = stdscr.getmaxyx()
+        pop_w = min(max(54, width - 8), width - 2)
+        inner_w = pop_w - 4
+        content_h = min(len(help_lines), height - 6)
+        pop_h = min(content_h + 4, height - 2)
+        pop_y = max(0, (height - pop_h) // 2)
+        pop_x = max(0, (width - pop_w) // 2)
+        sep = "─" * (pop_w - 2)
+        close_hint = "[ ↑↓ scroll   Esc / Enter / h to close ]"
+
+        win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
+        win.keypad(True)
+        scroll = 0
+
+        while True:
+            win.erase()
+            win.box()
+            title = " Help "
+            try:
+                win.addstr(0, max(1, (pop_w - len(title)) // 2), title, _curses.A_BOLD)
+                win.addstr(1, 1, sep[:pop_w - 2])
+            except _curses.error:
+                pass
+
+            rows_avail = pop_h - 4
+            for row in range(rows_avail):
+                li = scroll + row
+                if li >= len(help_lines):
+                    break
+                line = help_lines[li]
+                try:
+                    attr = _curses.A_BOLD if (line and not line.startswith(" ")) else _curses.A_NORMAL
+                    win.addstr(2 + row, 2, line[:inner_w], attr)
+                except _curses.error:
+                    pass
+
+            try:
+                win.addstr(pop_h - 2, max(1, (pop_w - len(close_hint)) // 2), close_hint[:pop_w - 2])
+            except _curses.error:
+                pass
+            if len(help_lines) > rows_avail:
+                pct = int(100 * scroll / max(1, len(help_lines) - rows_avail))
+                try:
+                    win.addstr(pop_h - 2, pop_w - 5, f"{pct:3d}%")
+                except _curses.error:
+                    pass
+
+            win.refresh()
+            key = win.getch()
+            if key in (10, 13, 27, ord("q"), ord("Q"), ord("h"), ord("H")):
+                break
+            elif key == _curses.KEY_UP:
+                scroll = max(0, scroll - 1)
+            elif key == _curses.KEY_DOWN:
+                scroll = min(max(0, len(help_lines) - rows_avail), scroll + 1)
+            elif key == _curses.KEY_PPAGE:
+                scroll = max(0, scroll - rows_avail)
+            elif key == _curses.KEY_NPAGE:
+                scroll = min(max(0, len(help_lines) - rows_avail), scroll + rows_avail)
+
+        del win
+        stdscr.touchwin()
+        stdscr.refresh()
 
     def curses_main(stdscr):
         _curses.curs_set(0)
@@ -1170,9 +1676,13 @@ def run_interactive(broken_links: list, root: Path) -> None:
         _curses.init_pair(6, _curses.COLOR_WHITE, -1)                  # filename in list
         _curses.init_pair(7, _curses.COLOR_CYAN, -1)                   # file line number in list
         _curses.init_pair(8, _curses.COLOR_BLUE, -1)                   # delinked (plain text)
+        _curses.init_pair(9, _curses.COLOR_GREEN, -1)                  # kept orphan
+        _curses.init_pair(10, _curses.COLOR_RED, -1)                   # unhandled orphan
 
         selected = 0
         offset = 0
+        n_links = sum(1 for it in all_items if it["_kind"] == "link")
+        n_orps = n - n_links
 
         def redraw():
             nonlocal offset
@@ -1180,8 +1690,15 @@ def run_interactive(broken_links: list, root: Path) -> None:
             height, width = stdscr.getmaxyx()
             list_height = height - 4
 
-            stdscr.addstr(0, 0, f"Broken links ({n} total)"[:width - 1])
-            stdscr.addstr(1, 0, "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   r=plain text   f=find link   q=quit"[:width - 1])
+            header = f"Broken links: {n_links}   Orphans: {n_orps}"
+            stdscr.addstr(0, 0, header[:width - 1])
+
+            sel_kind = all_items[selected]["_kind"] if n > 0 else "link"
+            if sel_kind == "orphan":
+                hint = "UP/DOWN navigate   ENTER=preview   d=delete   k=keep as orphan   h=help   q=quit"
+            else:
+                hint = "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   p=plain text   f=find link   h=help   q=quit"
+            stdscr.addstr(1, 0, hint[:width - 1])
             stdscr.addstr(2, 0, ("─" * (width - 1))[:width - 1])
 
             if selected < offset:
@@ -1193,46 +1710,52 @@ def run_interactive(broken_links: list, root: Path) -> None:
                 idx = offset + row
                 if idx >= n:
                     break
-                b = broken_links[idx]
+                item = all_items[idx]
                 state = states[idx]
+                is_orphan = item["_kind"] == "orphan"
                 if state == "deleted":
-                    prefix = "[DEL] "
-                    state_attr = _curses.color_pair(2)
+                    prefix = "[DEL] "; state_attr = _curses.color_pair(2)
                 elif state == "broken":
-                    prefix = "[BRK] "
-                    state_attr = _curses.color_pair(3)
+                    prefix = "[BRK] "; state_attr = _curses.color_pair(3)
                 elif state == "replaced":
-                    prefix = "[FIX] "
-                    state_attr = _curses.color_pair(4)
+                    prefix = "[FIX] "; state_attr = _curses.color_pair(4)
                 elif state == "delinked":
-                    prefix = "[TXT] "
-                    state_attr = _curses.color_pair(8)
+                    prefix = "[TXT] "; state_attr = _curses.color_pair(8)
+                elif state == "kept":
+                    prefix = "[KPT] "; state_attr = _curses.color_pair(9)
+                elif is_orphan:
+                    prefix = "[ORP] "; state_attr = _curses.color_pair(10)
                 else:
-                    prefix = "      "
-                    state_attr = _curses.A_NORMAL
+                    prefix = "      "; state_attr = _curses.A_NORMAL
                 y = 3 + row
                 avail = width - 1
                 if idx == selected:
-                    line = fmt_line(idx)
                     try:
-                        stdscr.addstr(y, 0, (prefix + line)[:avail], _curses.color_pair(1) | _curses.A_BOLD)
+                        stdscr.addstr(y, 0, (prefix + fmt_line(idx))[:avail], _curses.color_pair(1) | _curses.A_BOLD)
                     except _curses.error:
                         pass
                     continue
                 x = 0
-                for text, attr in [
-                    (prefix,                        state_attr),
-                    (f"{idx + 1:3d}",               _curses.color_pair(2)),
-                    ("  ",                          _curses.A_NORMAL),
-                    ("file:",                       _curses.A_DIM),
-                    (truncate_path(b['file']),      _curses.color_pair(6) | _curses.A_BOLD),
-                    (", ",                          _curses.A_NORMAL),
-                    ("line:",                       _curses.A_DIM),
-                    (str(b['line']),                _curses.color_pair(7)),
-                    (", ",                          _curses.A_NORMAL),
-                    ("link:",                       _curses.A_DIM),
-                    (b['target'],                   _curses.color_pair(5) | _curses.A_BOLD),
-                ]:
+                if is_orphan:
+                    file_w = max(10, avail - len(prefix) - 3 - 7)  # prefix + num(3) + "  file:"(7)
+                    segments = [
+                        (prefix,                         state_attr),
+                        (f"{idx + 1:3d}",                _curses.color_pair(2)),
+                        ("  file:",                      _curses.A_DIM),
+                        (item['file'][:file_w],          _curses.color_pair(6) | _curses.A_BOLD),
+                    ]
+                else:
+                    segments = [
+                        (prefix,                       state_attr),
+                        (f"{idx + 1:3d}",              _curses.color_pair(2)),
+                        ("  file:",                    _curses.A_DIM),
+                        (truncate_path(item['file']),  _curses.color_pair(6) | _curses.A_BOLD),
+                        (", line:",                    _curses.A_DIM),
+                        (str(item['line']),            _curses.color_pair(7)),
+                        (", link:",                    _curses.A_DIM),
+                        (item['target'],               _curses.color_pair(5) | _curses.A_BOLD),
+                    ]
+                for text, attr in segments:
                     if x >= avail or not text:
                         continue
                     try:
@@ -1256,6 +1779,8 @@ def run_interactive(broken_links: list, root: Path) -> None:
 
             if key in (ord("q"), ord("Q"), 27):
                 break
+            elif key in (ord("h"), ord("H")):
+                show_help(stdscr)
             elif key == _curses.KEY_UP:
                 if selected > 0:
                     selected -= 1
@@ -1274,75 +1799,98 @@ def run_interactive(broken_links: list, root: Path) -> None:
                 idx = selected
                 while True:
                     redraw()
-                    action = show_popup(stdscr, broken_links[idx], idx)
-                    if action == "d":
-                        result = do_delete(idx)
-                        states[idx] = "deleted" if result == "deleted" else None
-                        messages[idx] = "Link removed." if result == "deleted" else result
-                    elif action == "b":
-                        result = do_broken(idx)
-                        states[idx] = "broken" if result == "broken" else None
-                        messages[idx] = "Marked [[broken-link|…]]." if result == "broken" else result
-                    elif action == "r":
-                        result = do_delink(idx)
-                        states[idx] = "delinked" if result == "delinked" else None
-                        messages[idx] = "Brackets removed (plain text)." if result == "delinked" else result
-                    elif action == "f":
-                        new_rel = show_file_browser(stdscr, broken_links[idx].get("target", ""))
-                        if new_rel is not None:
-                            result = do_find_replace(idx, new_rel)
-                            states[idx] = "replaced" if result == "replaced" else None
-                            messages[idx] = f"→ {new_rel.stem}" if result == "replaced" else result
-                    if action in ("d", "b", "r") or (action == "f" and states[idx] is not None):
-                        # After acting, advance to next unhandled
+                    item = all_items[idx]
+                    if item["_kind"] == "orphan":
+                        action = show_orphan_preview(stdscr, item, idx)
+                        if action == "d":
+                            res = do_delete_orphan(idx)
+                            states[idx] = "deleted" if res == "deleted" else None
+                            messages[idx] = "File deleted." if res == "deleted" else res
+                        elif action == "k":
+                            res = do_keep_orphan(idx)
+                            states[idx] = "kept" if res in ("kept", "already kept") else None
+                            messages[idx] = res
+                    else:
+                        action = show_popup(stdscr, item, idx)
+                        if action == "d":
+                            res = do_delete(idx)
+                            states[idx] = "deleted" if res == "deleted" else None
+                            messages[idx] = "Link removed." if res == "deleted" else res
+                        elif action == "b":
+                            res = do_broken(idx)
+                            states[idx] = "broken" if res == "broken" else None
+                            messages[idx] = "Marked [[broken-link|…]]." if res == "broken" else res
+                        elif action == "r":
+                            res = do_delink(idx)
+                            states[idx] = "delinked" if res == "delinked" else None
+                            messages[idx] = "Brackets removed (plain text)." if res == "delinked" else res
+                        elif action == "f":
+                            new_rel = show_file_browser(stdscr, item.get("target", ""))
+                            if new_rel is not None:
+                                res = do_find_replace(idx, new_rel)
+                                states[idx] = "replaced" if res == "replaced" else None
+                                messages[idx] = f"→ {new_rel.stem}" if res == "replaced" else res
+                        elif action == "next":
+                            if idx < n - 1:
+                                idx += 1; selected = idx
+                            continue
+                        elif action == "prev":
+                            if idx > 0:
+                                idx -= 1; selected = idx
+                            continue
+                    if action in ("d", "b", "r", "k") or (action == "f" and states[idx] is not None):
                         next_idx = next((i for i in range(idx + 1, n) if states[i] is None), None)
                         if next_idx is not None:
-                            idx = next_idx
-                            selected = idx
-                            continue
-                    elif action == "next":
-                        if idx < n - 1:
-                            idx += 1
-                            selected = idx
-                            continue
-                    elif action == "prev":
-                        if idx > 0:
-                            idx -= 1
-                            selected = idx
+                            idx = next_idx; selected = idx
                             continue
                     selected = idx
                     break
             elif key in (ord("d"), ord("D")):
                 if states[selected] is None:
-                    result = do_delete(selected)
-                    states[selected] = "deleted" if result == "deleted" else None
-                    messages[selected] = "Link removed." if result == "deleted" else result
+                    item = all_items[selected]
+                    if item["_kind"] == "orphan":
+                        res = do_delete_orphan(selected)
+                        states[selected] = "deleted" if res == "deleted" else None
+                        messages[selected] = "File deleted." if res == "deleted" else res
+                    else:
+                        res = do_delete(selected)
+                        states[selected] = "deleted" if res == "deleted" else None
+                        messages[selected] = "Link removed." if res == "deleted" else res
+            elif key in (ord("k"), ord("K")):
+                if states[selected] is None and all_items[selected]["_kind"] == "orphan":
+                    res = do_keep_orphan(selected)
+                    states[selected] = "kept" if res in ("kept", "already kept") else None
+                    messages[selected] = res
             elif key in (ord("b"), ord("B")):
-                if states[selected] is None:
-                    result = do_broken(selected)
-                    states[selected] = "broken" if result == "broken" else None
-                    messages[selected] = "Marked [[broken-link|…]]." if result == "broken" else result
-            elif key in (ord("r"), ord("R")):
-                if states[selected] is None:
-                    result = do_delink(selected)
-                    states[selected] = "delinked" if result == "delinked" else None
-                    messages[selected] = "Brackets removed (plain text)." if result == "delinked" else result
+                if states[selected] is None and all_items[selected]["_kind"] == "link":
+                    res = do_broken(selected)
+                    states[selected] = "broken" if res == "broken" else None
+                    messages[selected] = "Marked [[broken-link|…]]." if res == "broken" else res
+            elif key in (ord("p"), ord("P")):
+                if states[selected] is None and all_items[selected]["_kind"] == "link":
+                    res = do_delink(selected)
+                    states[selected] = "delinked" if res == "delinked" else None
+                    messages[selected] = "Brackets removed (plain text)." if res == "delinked" else res
             elif key in (ord("f"), ord("F")):
-                if states[selected] is None:
-                    new_rel = show_file_browser(stdscr, broken_links[selected].get("target", ""))
+                if states[selected] is None and all_items[selected]["_kind"] == "link":
+                    new_rel = show_file_browser(stdscr, all_items[selected].get("target", ""))
                     if new_rel is not None:
-                        result = do_find_replace(selected, new_rel)
-                        states[selected] = "replaced" if result == "replaced" else None
-                        messages[selected] = f"→ {new_rel.stem}" if result == "replaced" else result
+                        res = do_find_replace(selected, new_rel)
+                        states[selected] = "replaced" if res == "replaced" else None
+                        messages[selected] = f"→ {new_rel.stem}" if res == "replaced" else res
 
     _curses.wrapper(curses_main)
 
-    deleted = sum(1 for s in states if s == "deleted")
-    broken_count = sum(1 for s in states if s == "broken")
-    replaced_count = sum(1 for s in states if s == "replaced")
-    delinked_count = sum(1 for s in states if s == "delinked")
-    skipped = n - deleted - broken_count - replaced_count - delinked_count
-    print(f"\nSession complete: {deleted} deleted, {broken_count} marked broken, {delinked_count} plain text, {replaced_count} replaced, {skipped} skipped.")
+    deleted_links   = sum(1 for i, s in enumerate(states) if s == "deleted"  and all_items[i]["_kind"] == "link")
+    deleted_orphans = sum(1 for i, s in enumerate(states) if s == "deleted"  and all_items[i]["_kind"] == "orphan")
+    broken_count    = sum(1 for s in states if s == "broken")
+    replaced_count  = sum(1 for s in states if s == "replaced")
+    delinked_count  = sum(1 for s in states if s == "delinked")
+    kept_count      = sum(1 for s in states if s == "kept")
+    skipped = n - sum(1 for s in states if s is not None)
+    print(f"\nSession complete: {deleted_links} links deleted, {broken_count} marked broken, "
+          f"{delinked_count} plain text, {replaced_count} replaced, "
+          f"{deleted_orphans} orphan pages deleted, {kept_count} orphans kept, {skipped} skipped.")
 
 
 # ---------------------------------------------------------------------------
@@ -1355,42 +1903,36 @@ def parse_args():
         description=(
             "Scan Markdown files for broken internal and external links.\n"
             "Output is structured JSON (default) or human-readable text, "
-            "designed for AI consumption.\n\n"
-            "Pass --check to run a scan; invoking with no arguments prints this help."
+            "designed for AI consumption."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Check vault rooted at the script's parent directory:
-  python3 check-broken-links.py --check
+  # Scan vault rooted at the script's parent directory:
+  python3 lint-wiki-pages.py
 
-  # Check a specific vault directory:
-  python3 check-broken-links.py --check /path/to/vault
+  # Scan a specific vault directory:
+  python3 lint-wiki-pages.py /path/to/vault
 
   # Human-readable output:
-  python3 check-broken-links.py --check --format text
+  python3 lint-wiki-pages.py --format text
 
   # Include external HTTP link checks:
-  python3 check-broken-links.py --check --external --timeout 10
+  python3 lint-wiki-pages.py --external --timeout 10
 
   # Include image embeds in checks:
-  python3 check-broken-links.py --check --include-images
+  python3 lint-wiki-pages.py --include-images
 
   # Skip frontmatter links (e.g. author: [[Name]] in raw/clips):
-  python3 check-broken-links.py --check --skip-frontmatter
+  python3 lint-wiki-pages.py --skip-frontmatter
 
   # Show suggested fixes for broken wikilinks, then apply them:
-  python3 check-broken-links.py --check --format text
-  python3 check-broken-links.py --check --fix-simple-errors
+  python3 lint-wiki-pages.py --format text
+  python3 lint-wiki-pages.py --fix-simple-errors
 
   # Combine options:
-  python3 check-broken-links.py --check --external --include-images --skip-frontmatter --format text /path/to/vault
+  python3 lint-wiki-pages.py --external --include-images --skip-frontmatter --format text /path/to/vault
         """,
-    )
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Run the broken-link scan (required; without this flag the help is shown)",
     )
     parser.add_argument(
         "root",
@@ -1448,6 +1990,15 @@ Examples:
         ),
     )
     parser.add_argument(
+        "--fix-orphans",
+        action="store_true",
+        dest="fix_orphans",
+        help=(
+            "For each orphaned wiki page, find plain-text references to its name in wiki/ "
+            "files and replace them with wikilinks. Only modifies files inside wiki/."
+        ),
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress progress messages written to stderr",
@@ -1465,10 +2016,6 @@ Examples:
 
 def main():
     parser, args = parse_args()
-
-    if not any([args.check, args.interactive, args.fix_simple_errors, args.remove_broken_links]):
-        parser.print_help()
-        sys.exit(0)
 
     # Determine root directory
     if args.root:
@@ -1514,17 +2061,37 @@ def main():
         result["broken_links"] = [b for b in result["broken_links"] if "suggested_fix" in b or b.get("fm_deleted")]
         result["summary"]["broken"] = len(result["broken_links"])
 
+    orphan_result = check_orphans(root, args.quiet)
+    result["orphans"] = orphan_result["orphans"]
+    result["orphan_summary"] = orphan_result["summary"]
+
+    if getattr(args, "fix_orphans", False) and orphan_result["orphans"]:
+        fix_result = fix_orphans(orphan_result["orphans"], root, args.quiet)
+        result["orphan_fix"] = fix_result
+        if fix_result["orphans_resolved"] > 0:
+            updated = check_orphans(root, quiet=True)
+            result["orphans"] = updated["orphans"]
+            result["orphan_summary"] = updated["summary"]
+
+    has_issues = (
+        result["summary"]["broken"] > 0
+        or result.get("orphan_summary", {}).get("orphans_found", 0) > 0
+    )
+
     if args.interactive:
-        run_interactive(result["broken_links"], root)
+        run_interactive(result["broken_links"], result.get("orphans", []), root)
     elif args.format == "json":
         print(json.dumps(result, indent=2, ensure_ascii=False))
     else:
         print(format_text(result))
 
-    # Exit code: 0 = no broken links, 1 = broken links found, 2 = errors
+    if not args.interactive and has_issues:
+        print("\nTip: run with --interactive to review and fix issues one by one.", file=sys.stderr)
+
+    # Exit code: 0 = clean, 1 = issues found, 2 = errors
     if result.get("errors"):
         sys.exit(2)
-    if result["summary"]["broken"] > 0:
+    if has_issues:
         sys.exit(1)
     sys.exit(0)
 
