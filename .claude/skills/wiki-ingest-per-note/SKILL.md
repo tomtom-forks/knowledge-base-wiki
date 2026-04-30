@@ -38,8 +38,8 @@ Then, for each markdown file to ingest:
   - **Wikilink rule:** Only wikilink to a page that (a) already exists in `wiki/`, or (b) you are creating/have created in this same session. If you identify a topic worth referencing but cannot describe it yet, create a minimal stub: frontmatter with `type` and `stub: true`, a `# Title` heading, and one italic line noting the source file. Stubs count as `pages_created` in the session log. Don't add the "stub: true" tag if you were able to generate at least minimal information on the subject.
   - **Stub expansion rule:** Before creating a new page, check if a stub already exists at that path (frontmatter contains `stub: true`). If so, expand it into a full page — remove `stub: true`, fill in proper content, and count it as `pages_updated` (not `pages_created`) in the session log.
 - Do NOT update `wiki/<topic>/_index.md` during a session (deferred to finalization).
-- Append one log entry to the session log `.import/batch-log-N.jsonl` for the **original** filename you had to ingest (one JSON object per line); this could be a markdown file, but also an `.eml`, `.vtt` or other file (before you converted it to markdown):
+- **After finishing each note's wiki pages** (immediately, before moving to the next note): append its log entry to the batch log file specified in your prompt. Write one JSON object per line — one for the original file, plus one for each converted markdown file produced from it:
 ```json
-{"date":"YYYY-MM-DD HH:mm:ss","session":N,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/concepts/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
+{"date":"YYYY-MM-DD HH:mm:ss","session":1,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/concepts/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
 ```
-- Append additional lines (same format) for ALL converted markdown files you have ingested.
+  The batch log path and session number were given to you in your prompt (e.g. `Write session logs to .import/batch-log-1.jsonl`). Do not wait until all notes are processed — write each entry as you go.
