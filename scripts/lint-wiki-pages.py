@@ -965,6 +965,8 @@ def check_vault(root: Path, args) -> dict:
             # Resolve
             if link_type == "wikilink" or (link_type == "image" and "[[" in raw):
                 ok = resolve_wikilink(target, root, stem_index)
+                if not ok and Path(target).parent != Path("."):
+                    ok = (md_file.parent / target).exists()
             else:
                 ok = resolve_mdlink(target, md_file, root, stem_index)
 
@@ -1279,7 +1281,7 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
         win.keypad(True)
         scroll = 0
         sep = "─" * (pop_w - 2)
-        hint = "[ d=delete   k=keep as orphan   ↑↓/PgUp/PgDn=scroll   h=help   Enter/q=close ]"
+        hint = "[ d=delete   k=keep as orphan   ↑↓=prev/next   PgUp/PgDn=scroll   h=help   Enter/q=close ]"
 
         while True:
             win.erase()
@@ -1309,9 +1311,11 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
             if key in (10, 13, ord("q"), ord("Q"), 27):
                 break
             elif key == _curses.KEY_UP:
-                scroll = max(0, scroll - 1)
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "prev"
             elif key == _curses.KEY_DOWN:
-                scroll = min(max(0, len(file_lines) - list_h), scroll + 1)
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "next"
             elif key == _curses.KEY_PPAGE:
                 scroll = max(0, scroll - list_h)
             elif key == _curses.KEY_NPAGE:
@@ -1349,7 +1353,7 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
         win.keypad(True)
         scroll = 0
         sep = "─" * (pop_w - 2)
-        hint = "[ d=delete   k=keep stub (remove stub: true)   ↑↓/PgUp/PgDn=scroll   h=help   Enter/q=close ]"
+        hint = "[ d=delete   k=keep stub (remove stub: true)   ↑↓=prev/next   PgUp/PgDn=scroll   h=help   Enter/q=close ]"
 
         while True:
             win.erase()
@@ -1379,9 +1383,11 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
             if key in (10, 13, ord("q"), ord("Q"), 27):
                 break
             elif key == _curses.KEY_UP:
-                scroll = max(0, scroll - 1)
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "prev"
             elif key == _curses.KEY_DOWN:
-                scroll = min(max(0, len(file_lines) - list_h), scroll + 1)
+                del win; stdscr.touchwin(); stdscr.refresh()
+                return "next"
             elif key == _curses.KEY_PPAGE:
                 scroll = max(0, scroll - list_h)
             elif key == _curses.KEY_NPAGE:
@@ -1623,19 +1629,48 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
         inner_w = pop_w - 4
 
         def _wrap(lineno, text):
+            """Yield (display_str, char_start, char_end, text_offset) per wrapped row."""
             prefix = f"{lineno:4d}  "
-            text_w = max(1, inner_w - len(prefix))
-            indent = " " * len(prefix)
+            prefix_len = len(prefix)
+            text_w = max(1, inner_w - prefix_len)
+            indent = " " * prefix_len
             if not text:
-                return [prefix]
-            chunks = [text[i:i + text_w] for i in range(0, len(text), text_w)]
-            return [prefix + chunks[0]] + [indent + c for c in chunks[1:]]
+                yield (prefix, 0, 0, prefix_len)
+                return
+            for i in range(0, len(text), text_w):
+                chunk = text[i:i + text_w]
+                yield ((prefix if i == 0 else indent) + chunk, i, i + len(chunk), prefix_len)
+
+        # Find the link's char span in the source line before wrapping.
+        # Use raw_link to locate the link, then narrow to just tgt within it
+        # so that surrounding syntax (e.g. [[ ]]) is not highlighted.
+        raw_link = entry.get("raw", "")
+        tgt = entry.get("target", "")
+        link_start = link_end = -1
+        for _, src_text, is_cur in context_lines:
+            if is_cur:
+                if raw_link:
+                    raw_pos = src_text.find(raw_link)
+                    if raw_pos != -1:
+                        tgt_off = raw_link.find(tgt) if tgt else -1
+                        if tgt_off != -1:
+                            link_start = raw_pos + tgt_off
+                            link_end = link_start + len(tgt)
+                        else:
+                            link_start = raw_pos
+                            link_end = raw_pos + len(raw_link)
+                if link_start == -1 and tgt:
+                    pos = src_text.find(tgt)
+                    if pos != -1:
+                        link_start = pos
+                        link_end = pos + len(tgt)
+                break
 
         # Pre-wrap all context lines so pop_h reflects actual row count
-        display_rows: list[tuple[str, bool]] = []
+        display_rows: list[tuple[str, bool, int, int, int]] = []
         for lineno, text, is_current in context_lines:
-            for chunk in _wrap(lineno, text):
-                display_rows.append((chunk, is_current))
+            for disp, cstart, cend, toff in _wrap(lineno, text):
+                display_rows.append((disp, is_current, cstart, cend, toff))
 
         # Layout: 4 header rows + content rows + sep + missing + hint + border = +4 fixed footer
         pop_h = min(4 + len(display_rows) + 4, height - 2)
@@ -1655,28 +1690,23 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
         win.addstr(3, 1, sep[:pop_w - 2])
         max_content_rows = max(0, pop_h - 8)
         hl_attr = _curses.color_pair(5) | _curses.A_BOLD
-        raw_link = entry.get("raw", "")
-        tgt = entry.get("target", "")
-        for i, (display, is_current) in enumerate(display_rows[:max_content_rows]):
+        for i, (display, is_current, cstart, cend, toff) in enumerate(display_rows[:max_content_rows]):
             base_attr = _curses.A_NORMAL if is_current else _curses.A_DIM
             text = display[:pop_w - 3]
-            highlighted = False
             try:
-                if is_current:
-                    for needle in (raw_link, tgt):
-                        if not needle:
-                            continue
-                        pos = text.find(needle)
-                        if pos != -1:
-                            hl_end = min(pos + len(needle), len(text))
-                            if pos > 0:
-                                win.addstr(4 + i, 2, text[:pos], base_attr)
-                            win.addstr(4 + i, 2 + pos, text[pos:hl_end], hl_attr)
-                            if hl_end < len(text):
-                                win.addstr(4 + i, 2 + hl_end, text[hl_end:], base_attr)
-                            highlighted = True
-                            break
-                if not highlighted:
+                if is_current and link_start != -1 and cstart < link_end and cend > link_start:
+                    # Map source-text char offsets to display positions for this row
+                    row_hl_s = max(0, link_start - cstart)
+                    row_hl_e = min(cend - cstart, link_end - cstart)
+                    d_s = min(toff + row_hl_s, len(text))
+                    d_e = min(toff + row_hl_e, len(text))
+                    if d_s > 0:
+                        win.addstr(4 + i, 2, text[:d_s], base_attr)
+                    if d_s < d_e:
+                        win.addstr(4 + i, 2 + d_s, text[d_s:d_e], hl_attr)
+                    if d_e < len(text):
+                        win.addstr(4 + i, 2 + d_e, text[d_e:], base_attr)
+                else:
                     win.addstr(4 + i, 2, text, base_attr)
             except _curses.error:
                 pass
@@ -1765,7 +1795,7 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
         pop_y = max(0, (height - pop_h) // 2)
         pop_x = max(0, (width - pop_w) // 2)
         sep = "─" * (pop_w - 2)
-        close_hint = "[ ↑↓ scroll   Esc / Enter / h to close ]"
+        close_hint = "[ ↑↓/PgUp/PgDn scroll   Esc / Enter / h to close ]"
 
         win = _curses.newwin(pop_h, pop_w, pop_y, pop_x)
         win.keypad(True)
@@ -1854,11 +1884,11 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
 
             sel_kind = all_items[selected]["_kind"] if n > 0 else "link"
             if sel_kind == "orphan":
-                hint = "UP/DOWN navigate   ENTER=preview   d=delete   k=keep as orphan   h=help   q=quit"
+                hint = "UP/DOWN/PgUp/PgDn navigate   ENTER=preview   d=delete   k=keep as orphan   h=help   q=quit"
             elif sel_kind == "stub":
-                hint = "UP/DOWN navigate   ENTER=preview   d=delete   k=keep stub   h=help   q=quit"
+                hint = "UP/DOWN/PgUp/PgDn navigate   ENTER=preview   d=delete   k=keep stub   h=help   q=quit"
             else:
-                hint = "UP/DOWN navigate   ENTER=preview   d=delete   b=mark broken   p=plain text   f=find link   h=help   q=quit"
+                hint = "UP/DOWN/PgUp/PgDn navigate   ENTER=preview   d=delete   b=mark broken   p=plain text   f=find link   h=help   q=quit"
             stdscr.addstr(1, 0, hint[:width - 1])
             stdscr.addstr(2, 0, ("─" * (width - 1))[:width - 1])
 
@@ -1974,6 +2004,14 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
                             res = do_keep_orphan(idx)
                             states[idx] = "kept" if res in ("kept", "already kept") else None
                             messages[idx] = res
+                        elif action == "next":
+                            if idx < n - 1:
+                                idx += 1; selected = idx
+                            continue
+                        elif action == "prev":
+                            if idx > 0:
+                                idx -= 1; selected = idx
+                            continue
                     elif item["_kind"] == "stub":
                         action = show_stub_preview(stdscr, item, idx)
                         if action == "d":
@@ -1984,6 +2022,14 @@ def run_interactive(broken_links: list, orphans: list, stubs: list, root: Path) 
                             res = do_remove_stub(idx)
                             states[idx] = "kept" if res == "unstubbed" else None
                             messages[idx] = "stub: true removed." if res == "unstubbed" else res
+                        elif action == "next":
+                            if idx < n - 1:
+                                idx += 1; selected = idx
+                            continue
+                        elif action == "prev":
+                            if idx > 0:
+                                idx -= 1; selected = idx
+                            continue
                     else:
                         action = show_popup(stdscr, item, idx)
                         if action == "d":
