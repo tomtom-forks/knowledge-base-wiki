@@ -26,13 +26,20 @@ Use this command to scan markdown files for stubs:
 ```bash
 find wiki -name "*.md" -exec awk '/^---/{p++} p==1{print FILENAME": "$0} p==2{p=0; nextfile}' {} + | grep "stub:.*true"
 ```
-If any exist, list them in a "Stubs still needing expansion" section so the user knows what gaps remain.
+If any exist, list them in a "Stubs that still needing expansion" section so the user knows what gaps remain.
 
-## Step 3: Manual checks
+## Step 3: Report known contradcitions
+
+Use this command to scan markdown files for known contradictions:
+```bash
+find wiki -name "*.md" -exec awk '/^---/{p++} p==1{print FILENAME": "$0} p==2{p=0; nextfile}' {} + | grep "contradiction:.*true"
+```
+If any exist, list them in a "Contradictions that still need resolution" section so the user knows what gaps remain.
+
+## Step 4: Manual checks
 
 Present recommendations only — never modify the wiki for these without user confirmation.
 
-- **Contradictions** — scan for conflicting facts within and between pages (introduced by successive ingestions).
-- **Missing dedicated pages** — topics mentioned across multiple pages that lack their own page.
 - **Missing top-level topics** — if 10+ pages relate to a common concept not listed as a top-level topic in `wiki/index.md`, suggest adding it.
 - **Data gaps** — suggest new sources worth finding.
+- **Missing dedicated pages** — topics mentioned across multiple pages that lack their own page; do not suggest-top-level topics, but pages within the top-level topics only.
