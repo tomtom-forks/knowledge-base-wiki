@@ -1,5 +1,6 @@
 config/personal_info.md
 .claude/settings.local.json
+.claude/skills/qmd
 .claudian/
 .gitnexus/
 .idea/
