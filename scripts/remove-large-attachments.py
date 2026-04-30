@@ -173,7 +173,7 @@ HELP_LINES = [
     f"  Vault: {VAULT}",
     f"  Min size: {50} KB",
     "",
-    "Press Enter to start …",
+    "Press Enter to start, Esc to exit …",
 ]
 
 
@@ -212,8 +212,8 @@ def show_updated_notes_popup(stdscr, changed: list[str]):
             return
 
 
-def show_help_popup(stdscr):
-    """Draw a centered help popup; return when Enter is pressed."""
+def show_help_popup(stdscr) -> bool:
+    """Draw a centered help popup. Returns True to continue, False to exit (Esc)."""
     curses.curs_set(0)
     while True:
         h, w = stdscr.getmaxyx()
@@ -243,8 +243,10 @@ def show_help_popup(stdscr):
 
         stdscr.refresh()
         key = stdscr.getch()
-        if key == 10 or key == 13 or key == 27:  # Enter or Esc
-            return
+        if key in (10, 13):   # Enter → continue
+            return True
+        if key == 27:          # Esc → exit
+            return False
 
 
 def draw(stdscr, attachments, cursor, scroll, status, status_color):
@@ -307,7 +309,8 @@ def main(stdscr):
     curses.init_pair(4, curses.COLOR_RED, -1)                    # error / confirm
     curses.init_pair(5, curses.COLOR_YELLOW, -1)                 # info
 
-    show_help_popup(stdscr)
+    if not show_help_popup(stdscr):
+        return
 
     # Loading indicator
     stdscr.erase()

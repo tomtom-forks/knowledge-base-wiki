@@ -29,20 +29,24 @@ Access to the knowledge base is as follows:
 - **query wiki**
 	- user asks a high-level question
 	- LLM queries semantic database (with the `qmd` skill) for relevant page links (fast/token-efficient)
-	- LLM processes `qmd`-suggested pages and produces answer to user
+	- LLM processes suggested pages and produces answer to user
 	- LLM stores valuable conversations in `wiki/conversations/` to extend the knowledge base
 
 The combination of using a semantic database to fetch relevant pages before analyzing documents and reasoning about them, makes this implementation of a knowledge significantly faster and more token efficient than when it's using Markdown files only.
 
-## Slash commands
+## Commands and skills
 
-These Claude Code slash commands are available for ingesting notes:
+These Claude Code slash commands and natural-language triggers are available:
 
-| Command | Description |
-| ------- | ----------- |
+| Command / phrase | Description |
+| ---------------- | ----------- |
 | `/wiki:ingest` | Start a new ingest of raw notes (Session 1 — coordinator flow) |
 | `/wiki:ingest-next-batch` | Continue ingesting the next batch (Sessions 2–N flow) |
 | `/wiki:finalize-ingest` | Finalize the ingest: merge logs, rebuild indexes, run post-processing |
+| ask any question | Query the knowledge base (default behavior) |
+| "health check" or "lint" | Check for orphaned pages, broken links, contradictions |
+| "add missing [topic]" | Create a new wiki page for a missing concept, person, system, etc. |
+| "clear ingest batches" | Remove incomplete batch files to restart a failed ingest |
 
 The `ingest next batch` and `finalize ingest` commands are only needed for importing large amounts of notes. Claude will notify you when you `ingest new notes` and it sees it requires batched importing.
 
@@ -196,7 +200,7 @@ The directories `raw` and `wiki` are not stored in Git. Create them manually bef
 
 | Type              | Purpose                                                    |
 | ----------------- | ---------------------------------------------------------- |
-| **competitors**   | Competing companies, products, and approaches              |
+| **competition**   | Competing companies, products, and approaches              |
 | **concepts**      | Technologies, standards, mental models, domain vocabulary  |
 | **conversations** | Valuable results of earlier queries/conversations          |
 | **decisions**     | Why decisions were taken, on what basis, by whom, and when |
