@@ -55,10 +55,19 @@ For each file listed in the claimed `.claimed.txt` file, apply the per-note inge
 
 Conversions before ingestion:
 
-- **Images/PDFs** in `raw/scans/`: convert using `mcp__claude_ai_Atlassian__fetch` or similar. Save converted markdown to `raw/scans/converted/` with frontmatter: `source` (link to original), `date` (source timestamp), `converted` (today). Ingest only `.md` files.
 - **`.vtt` transcripts** in `raw/transcripts/`: run `python3 scripts/convert-vtt-to-md.py --new --dir raw/transcripts --output-dir raw/transcripts/converted`. Ingest only `.md` files.
 - **`.eml` emails** in `raw/emails/`: run `python3 scripts/convert-eml-to-md.py --new --dir raw/emails --output-dir raw/emails/converted`. Ingest only `.md` files.
-- Attachments linked from source files (e.g. in `_resources/` directories) are also included.
+- **Note attachments** (files linked from the note, e.g. in `_resources/` directories): for each linked attachment that is not already markdown:
+  1. Check if `<attachment_parent_dir>/converted/<attachment_filename>.md` exists — if so, skip.
+  2. Otherwise, convert to markdown using the appropriate tool (e.g. `mcp__claude_ai_Atlassian__fetch` for PDFs/images or convert it yourself). Save to `<attachment_parent_dir>/converted/<attachment_filename>.md` with frontmatter: `source` (path to original), `converted` (now).
+  3. Add the new `.md` path to the end of the current processing queue (to be ingested in this session after the source note).
+  4. Append to the bottom of the source note:
+     ```markdown
+     ### AI converted attachments
+     | Original attachment | Converted to markdown |
+     | [[original link]] | [[converted link]] |
+     ```
+     (One table row per converted attachment; if the section already exists, append additional rows.)
 
 Use sub-agents and process in batches of 10 to conserve context.
 
