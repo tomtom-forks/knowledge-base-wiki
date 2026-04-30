@@ -26,9 +26,9 @@ Use this command to scan markdown files for stubs:
 ```bash
 find wiki -name "*.md" -exec awk '/^---/{p++} p==1{print FILENAME": "$0} p==2{p=0; nextfile}' {} + | grep "stub:.*true"
 ```
-If any exist, list them in a "Stubs that still needing expansion" section so the user knows what gaps remain.
+If any exist, list them in a "Stubs still needing expansion" section so the user knows what gaps remain.
 
-## Step 3: Report known contradcitions
+## Step 3: Report known contradictions
 
 Use this command to scan markdown files for known contradictions:
 ```bash

@@ -1,6 +1,6 @@
 ---
 name: wiki-finalize-ingest
-description: Use when the user asks to finalize an ingest, merge batch logs, or rebuild wiki indexes after a batch import. Merges all session logs into wiki/log.jsonl, rebuilds _index.md files, reports stubs, and optionally runs QMD and lint. Warns if no logs or batches are found.
+description: Use when the user asks to finalize an ingest, merge batch logs, or rebuild wiki indexes after a batch import.
 ---
 
 # Knowledge Base - Finalize Ingest

@@ -1,6 +1,6 @@
 ---
 name: wiki-templates
-description: Use when creating or structuring a new wiki page — decisions, systems, people, concepts, competition, conversations, projects, problems, or index files. Contains all formatting rules and page templates.
+description: Use when creating or structuring a new wiki page — decisions, systems, people, concepts, competition, conversations, projects, problems, or index files.
 ---
 
 # Knowledge Base - Page Templates
@@ -141,6 +141,8 @@ type: person | team
 ```markdown
 ---
 type: concept
+date: YYYY-MM-DD HH:mm:ss
+tags: []
 ---
 # <Concept>
 ## Short definition
