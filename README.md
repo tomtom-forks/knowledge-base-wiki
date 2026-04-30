@@ -8,7 +8,9 @@ This repository contains a solid implementation of [Andrej Karpathy's LLM Wiki i
 
 The primary goal is **efficient decision intelligence**: understanding why decisions were taken, on what basis, by whom, and when. Secondary goals include mapping how technologies and systems relate, who is involved in what, and how competitors compare. And 'efficient', because the mechanism needs to be token (and environmentally) efficient.
 
-**Division of labor:** The user curates source files in `raw/`. Claude Code does all writing, cross-referencing, and bookkeeping in `wiki/`. 
+**Division of labor:** 
+- The user curates source files in `raw/`.
+- Claude does all writing, cross-referencing, and bookkeeping in `wiki/`. 
 
 ## In a nutshell
 
