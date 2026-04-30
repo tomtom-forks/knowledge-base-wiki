@@ -40,4 +40,11 @@ find "$ROOT/wiki" -mindepth 1 ! -name ".gitkeep" -delete
 find "$ROOT/.import" -mindepth 1 ! -name ".gitkeep" -delete
 
 echo "Done. wiki/ and .import/ cleared."
+
+if [[ "$FORCE" == true ]]; then
+  "$SCRIPT_DIR/qmd-reset-collections.sh" --force
+else
+  "$SCRIPT_DIR/qmd-reset-collections.sh"
+fi
+
 echo "Run prompt '/wiki-ingest' in Claude to recreate the wiki."

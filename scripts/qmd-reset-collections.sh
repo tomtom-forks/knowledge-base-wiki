@@ -2,13 +2,24 @@
 # Removes all QMD collections and wipes the index database.
 set -euo pipefail
 
+FORCE=false
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE=true ;;
+  esac
+done
+
 QMD_DB_DIR="${HOME}/.cache/qmd"
 
-echo "This will remove all QMD collections and delete the index database at:"
-echo "  ${QMD_DB_DIR}/index.sqlite"
-echo ""
-read -r -p "Continue? [y/N] " confirm
-[[ "${confirm}" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+if [[ "$FORCE" != true ]]; then
+  echo "This will remove all QMD collections and delete the index database at:"
+  echo "  ${QMD_DB_DIR}/index.sqlite"
+  echo ""
+  printf "Continue? [y/N] "
+  read -r -n 1 confirm
+  echo
+  [[ "${confirm}" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
+fi
 
 echo ""
 echo "=== Removing collections ==="

@@ -70,7 +70,7 @@ remaining=()
 while IFS= read -r line; do
     remaining+=("$line")
 done < <(comm -23 \
-    <(find "$NOTES_DIR" -name "*.md" | sort) \
+    <(find "$NOTES_DIR" \( -name "*.md" -o -name "*.doc" -o -name "*.docx" -o -name "*.txt" -o -name "*.vtt" -o -name "*.eml" \) | sort) \
     <(echo "$ingested"))
 
 total=${#remaining[@]}

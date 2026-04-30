@@ -50,9 +50,10 @@ from pathlib import Path
 # Captures only the target portion (before any | or # delimiter).
 # A single ']' that is NOT followed by another ']' is allowed inside the target
 # (e.g. [[example [1] of a note]]), while ']]' ends the link.
-RE_WIKILINK = re.compile(r'(?<!!)\[\[((?:[^\]|#\n]|\](?!\]))+)')
+# '\|' (backslash-pipe) is also treated as a separator, as required inside markdown tables.
+RE_WIKILINK = re.compile(r'(?<!!)\[\[((?:[^\]|#\n\\]|\\(?!\|)|\](?!\]))+)')
 # Matches ![[target]] — Obsidian image embeds (same bracket rule applies)
-RE_IMAGE_EMBED = re.compile(r'!\[\[((?:[^\]|#\n]|\](?!\]))+)')
+RE_IMAGE_EMBED = re.compile(r'!\[\[((?:[^\]|#\n\\]|\\(?!\|)|\](?!\]))+)')
 # Matches [text](target) — standard markdown links; skips http/https separately
 RE_MDLINK = re.compile(r'(?<!!)\[[^\]]*\]\(([^)#\n]+?)(?:#[^)]*)?\)')
 # Matches ![alt](target) — standard markdown images
@@ -96,7 +97,7 @@ def extract_links(content: str, include_images: bool, skip_frontmatter: bool = F
         # Obsidian wikilinks
         for m in RE_WIKILINK.finditer(line):
             target = m.group(1).strip()
-            if line[m.end():].startswith('|(broken link)'):
+            if line[m.end():].startswith('|(broken link)') or line[m.end():].startswith('\\|(broken link)'):
                 continue  # already marked by --remove-broken-links; skip
             yield lineno, "wikilink", m.group(0), target
         # Obsidian image embeds
@@ -318,7 +319,7 @@ def mark_broken_wikilinks_in_file(file_path: Path, targets: list) -> int:
     count = 0
     for target in targets:
         pattern = re.compile(
-            r'(?<!!)\[\[(' + re.escape(target) + r')(#[^|\]]*)?(\|[^\]\n]*)?\]\]'
+            r'(?<!!)\[\[(' + re.escape(target) + r')(#[^|\\\]]*)?(?:\\?(\|[^\]\n]*))?\]\]'
         )
         def _replacer(m, _t=target):
             heading = m.group(2) or ""
@@ -349,7 +350,7 @@ def delete_wikilink_in_file(file_path: Path, target: str):
     # were fully deleted (so callers can adjust line numbers in sibling entries).
     content = file_path.read_text(encoding='utf-8', errors='replace')
     link_pat = re.compile(
-        r'( ?)(?<!!)\[\[' + re.escape(target) + r'(?:#[^|\]]*)?(?:\|[^\]]*)?\]\]( ?)'
+        r'( ?)(?<!!)\[\[' + re.escape(target) + r'(?:#[^|\\\]]*)?(?:\\?\|[^\]]*)?\]\]( ?)'
     )
     # Bare: optional indent + optional list marker + optional empty quote pair + whitespace.
     # Quote pairs: "" '' and their curly variants (via \u escapes)
@@ -390,7 +391,7 @@ def delink_wikilink_in_file(file_path: Path, target: str) -> int:
     Returns substitution count."""
     content = file_path.read_text(encoding='utf-8', errors='replace')
     pattern = re.compile(
-        r'(?<!!)\[\[' + re.escape(target) + r'(?:#[^|\]]*)?(?:\|([^\]]*))?\]\]'
+        r'(?<!!)\[\[' + re.escape(target) + r'(?:#[^|\\\]]*)?(?:\\?\|([^\]]*))?\]\]'
     )
     stem = Path(target).stem  # strips any path prefix and extension: x/y/z.md → z
     def _repl(m, _stem=stem):
@@ -443,7 +444,7 @@ def mark_as_broken_link_in_file(file_path: Path, target: str) -> bool:
     """Rewrite [[target]] → [[broken-link|target]] in file. Returns True if changed."""
     content = file_path.read_text(encoding="utf-8", errors="replace")
     pattern = re.compile(
-        r'(?<!!)\[\[(' + re.escape(target) + r')(#[^|\]]*)?(\|[^\]\n]*)?\]\]'
+        r'(?<!!)\[\[(' + re.escape(target) + r')(#[^|\\\]]*)?(?:\\?(\|[^\]\n]*))?\]\]'
     )
     def _replacer(m, _t=target):
         alias_part = m.group(3)
