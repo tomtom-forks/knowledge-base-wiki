@@ -38,7 +38,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-NOTES_DIR="raw/notes"
+NOTES_DIR="raw"
 LOG="wiki/log.jsonl"
 IMPORT_DIR=".import"
 
