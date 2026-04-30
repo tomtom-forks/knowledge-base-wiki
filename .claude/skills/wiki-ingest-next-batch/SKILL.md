@@ -35,9 +35,7 @@ done
 
 ## Step 3 — Process the batch
 
-**REQUIRED BACKGROUND:** Invoke `wiki-ingest-per-note` for the full per-note ingestion rules before processing files.
-
-Use sub-agents and process in batches of 10 to conserve context.
+Dispatch sub-agents in batches of 10 to process the files. Each sub-agent prompt must begin with: "Invoke `wiki-ingest-per-note` before processing. Then ingest these files: [list]."
 
 ## Step 4 — Finish
 

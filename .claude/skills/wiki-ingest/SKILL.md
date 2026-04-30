@@ -25,12 +25,8 @@ When asked to "ingest new raw notes" (or similar):
    ```bash
    mv .import/batch-import-1.txt .import/batch-import-1.claimed.txt
    ```
-   Then read `.import/batch-import-1.claimed.txt`. For each file listed, apply per-note ingestion above. Use sub-agents and process in batches of 10 to conserve context. After finishing all files, delete `.import/batch-import-1.claimed.txt`.
+   Then read `.import/batch-import-1.claimed.txt`. Dispatch sub-agents in batches of 10 to process the files. Each sub-agent prompt must begin with: "Invoke `wiki-ingest-per-note` before processing. Then ingest these files: [list]." After all sub-agents finish, delete `.import/batch-import-1.claimed.txt`.
 4. **If single-batch**: tell the user to run `finalize ingest`. **If multi-batch**: report notes processed/pages created/updated, then await "finalize ingest".
-
-## Per-note ingestion
-
-**REQUIRED BACKGROUND:** Invoke `wiki-ingest-per-note` for the full per-note ingestion rules before processing files.
 
 ## Confluence ingestion
 
