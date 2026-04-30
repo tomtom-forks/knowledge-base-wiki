@@ -1,5 +1,5 @@
 ---
-name: knowledge-base-query
+name: wiki-query
 description: Use when the user asks any question, requests research, or wants information from the knowledge base. This is the default action in this repository — when in doubt, search the wiki. Use for "find me...", "what do we know about...", "tell me about...", "who is...", "what is...", or any general research question.
 ---
 

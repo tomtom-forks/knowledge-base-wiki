@@ -1,5 +1,5 @@
 ---
-name: knowledge-base-ingest
+name: wiki-ingest
 description: Use when the user asks to ingest, import, or process notes; mentions a raw note file path; provides a Confluence URL or page title; or says "process new files". Covers standard ingestion, Confluence MCP fetching, and bulk batch processing.
 ---
 
@@ -20,7 +20,7 @@ For each markdown file:
 - Do NOT update `wiki/<topic>/_index.md` during a session (deferred to finalization).
 - Append one log entry to the session log `raw/_batch-log-N.jsonl` (one JSON object per line):
 ```json
-{"date":"YYYY-MM-DD","session":N,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/concepts/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
+{"date":"YYYY-MM-DD HH:mm:ss","session":N,"file":"raw/notes/filename.md","summary":"One-sentence description.","pages_created":["wiki/concepts/NavSDK.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
 ```
 
 Conversions before ingestion:
@@ -38,6 +38,11 @@ When asked to "ingest new raw notes" (or similar):
    - Default max batch size is 50 files. Override with `--max-size N` (e.g. `--max-size 20`).
    - This removes any old `raw/_batch-import-*.txt` remnants and creates fresh ones.
    - If output says "Nothing to ingest", report that and stop.
+   - **If the script exits with code 2**: a previous ingest was not completed. Use `AskUserQuestion` to ask the user what to do, with these options:
+     - **"Ingest next batch"** — stop here and execute the "ingest next batch" flow (Sessions 2–N above) instead; do NOT re-run `create-import-batches.sh`.
+     - **"Forget previous ingestion and import new notes"** — re-run `bash scripts/create-import-batches.sh --force` to wipe old batches, then continue with this flow from step 2.
+     - **"Abort"** — stop immediately and do nothing.
+   - Check the exit code explicitly after running the script: `bash scripts/create-import-batches.sh; echo "EXIT:$?"`  and look for `EXIT:2`.
 2. **Check how many batches have content**: count non-empty `raw/_batch-import-*.txt` files (the script prints the count).
    - **If only 1 batch has content**: process it (step 3) and immediately proceed to Finalization — do NOT ask the user to open more sessions.
    - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more Claude Code sessions. In each one say: `ingest next batch` (or `/wiki:ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki:finalize-ingest`) here." — then proceed to step 3.
@@ -77,7 +82,7 @@ When asked to "finalize ingest":
      ```markdown
      ---
      type: index
-     date: YYYY-MM-DD
+     date: YYYY-MM-DD HH:mm:ss
      ---
      # <Type> - index
      [[wiki/index|← Index]]
@@ -96,11 +101,11 @@ When asked to "finalize ingest":
 Triggered by a Confluence URL or page title:
 
 - Fetch via `mcp__claude_ai_Atlassian__fetch`
-- Save to `raw/confluence/<page-slug>.md` with frontmatter:
+- Save to `raw/confluence/<Page Title>.md` with frontmatter:
 ```yaml
 ---
 source_url: <url>
-fetched: YYYY-MM-DD
+fetched: YYYY-MM-DD HH:mm:ss
 ---
 ```
 - Continue with per-note ingestion for that file (as a single-file session — write to `raw/_batch-log-1.jsonl`, then immediately finalize).
@@ -112,7 +117,7 @@ fetched: YYYY-MM-DD
 `wiki/log.jsonl` is append-only. One JSON object per line, sorted oldest-to-newest by append order.
 
 ```jsonl
-{"date":"YYYY-MM-DD","session":1,"file":"raw/notes/meeting-2026-03-01.md","summary":"Quarterly planning meeting notes.","pages_created":["wiki/decisions/adopt-vector-tiles.md","wiki/projects/AutoStream.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
+{"date":"YYYY-MM-DD HH:mm:ss","session":1,"file":"raw/notes/meeting-2026-03-01.md","summary":"Quarterly planning meeting notes.","pages_created":["wiki/decisions/adopt-vector-tiles.md","wiki/projects/AutoStream.md"],"pages_updated":["wiki/people/Jane Smith.md"]}
 ```
 
 Finding un-ingested notes: `jq -r '.file' wiki/log.jsonl` — lists all ingested paths.  

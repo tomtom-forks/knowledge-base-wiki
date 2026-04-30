@@ -444,7 +444,7 @@ def build_parser() -> argparse.ArgumentParser:
               cc       CC header (omitted when empty)
               bcc      BCC header (omitted when empty)
               subject  Subject header
-              date     YYYY-MM-DD from Date / Received / mtime
+              date     YYYY-MM-DD HH:mm:ss from Date / Received / mtime
 
             The markdown body also contains a human-readable header block
             (Date / From / To / CC / BCC / Subject) before the email body.

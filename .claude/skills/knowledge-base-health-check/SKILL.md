@@ -1,5 +1,5 @@
 ---
-name: knowledge-base-health-check
+name: wiki-health-check
 description: Use when the user asks for a health check, lint, audit, or wants to check for orphan pages, contradictions, or data gaps in the wiki.
 ---
 
@@ -17,7 +17,7 @@ python3 scripts/check-broken-links.py --fix
 - Report how many links were fixed, and list any remaining broken links for the user to review manually.
 - If there are problems left, suggest the user to run:
 ```bash
-python3 scripts/check-broken-links.py --interactive
+python3 scripts/check-broken-links.py --check --interactive
 ```
 
 ## Step 2: Manual checks

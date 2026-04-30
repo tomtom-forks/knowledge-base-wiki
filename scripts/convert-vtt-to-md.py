@@ -541,7 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
             FRONTMATTER FIELDS WRITTEN
               type      always "transcript"
               title     --title value, or the .vtt filename stem
-              date      YYYY-MM-DD (from filename prefix, --date, or file birthtime)
+              date      YYYY-MM-DD HH:mm:ss (from filename prefix, --date, or file birthtime)
               source    original .vtt filename (after optional rename)
               duration  H:MM:SS total duration
               speakers  list of unique speakers (empty list when none detected)

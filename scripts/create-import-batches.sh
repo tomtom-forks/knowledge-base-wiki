@@ -2,19 +2,21 @@
 # Partitions un-ingested notes into batch files for parallel import sessions.
 #
 # Usage:
-#   bash scripts/create-import-batches.sh [--max-size N] [--help]
+#   bash scripts/create-import-batches.sh [--max-size N] [--force] [--help]
 #
 # Options:
 #   --max-size N   Maximum number of files per batch (default: 50)
+#   --force        Remove existing batch/log files before running
 #   --help         Print this help and exit
 #
 # Output files:
-#   raw/_import-batch-1.txt, raw/_import-batch-2.txt, …
+#   raw/_batch-import-1.txt, raw/_batch-import-2.txt, …
 #   Each file contains one file path per line.
 #
 # Exit codes:
 #   0  Success (including "nothing to ingest")
 #   1  Invalid argument
+#   2  Existing batch or log files found (use --force to override)
 #
 # Machine-readable summary line (always last):
 #   RESULT: total=<N> batches=<N> max_size=<N> status=<ready|empty>
@@ -26,9 +28,11 @@ usage() {
 }
 
 MAX_SIZE=50
+FORCE=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --max-size) MAX_SIZE="$2"; shift 2 ;;
+        --force)    FORCE=true; shift ;;
         --help|-h)  usage ;;
         *) echo "ERROR: Unknown argument: $1" >&2; echo "Run with --help for usage." >&2; exit 1 ;;
     esac
@@ -37,7 +41,27 @@ done
 NOTES_DIR="raw/notes"
 LOG="wiki/log.jsonl"
 
-rm -f raw/_import-batch-*.txt
+existing_batches=( raw/_batch-import-*.txt )
+existing_logs=( raw/_batch-log-*.jsonl )
+has_batches=false
+has_logs=false
+[[ -e "${existing_batches[0]}" ]] && has_batches=true
+[[ -e "${existing_logs[0]}" ]]   && has_logs=true
+
+if $has_batches || $has_logs; then
+    if ! $FORCE; then
+        echo "ERROR: Existing files found:" >&2
+        $has_batches && printf '  %s\n' "${existing_batches[@]}" >&2
+        $has_logs    && printf '  %s\n' "${existing_logs[@]}"    >&2
+        echo "" >&2
+        echo "Execute /wiki:ingest-next-batch to continue processing and" >&2
+        echo "execute /wiki:finalize-ingest when all batches are done." >&2
+        echo "Or use the option --force to remove the files and continue." >&2
+        exit 2
+    fi
+    $has_batches && rm -f "${existing_batches[@]}"
+    $has_logs    && rm -f "${existing_logs[@]}"
+fi
 
 ingested=$(grep -hoP '"file":"\K[^"]+' "$LOG" raw/.session-*.jsonl 2>/dev/null | sort || true)
 
@@ -64,14 +88,14 @@ fi
 
 for idx in "${!remaining[@]}"; do
     batch=$(( idx / MAX_SIZE + 1 ))
-    echo "${remaining[$idx]}" >> "raw/_import-batch-$batch.txt"
+    echo "${remaining[$idx]}" >> "raw/_batch-import-$batch.txt"
 done
 
 echo ""
 echo "Batch breakdown:"
 for ((i=1; i<=num_batches; i++)); do
-    count=$(grep -c . "raw/_import-batch-$i.txt" 2>/dev/null || echo 0)
-    echo "  raw/_import-batch-$i.txt : $count files"
+    count=$(grep -c . "raw/_batch-import-$i.txt" 2>/dev/null || echo 0)
+    echo "  raw/_batch-import-$i.txt : $count files"
 done
 
 echo ""

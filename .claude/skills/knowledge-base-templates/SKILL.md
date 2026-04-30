@@ -1,5 +1,5 @@
 ---
-name: knowledge-base-templates
+name: wiki-templates
 description: Use when creating or structuring a new wiki page — decisions, systems, people, concepts, competition, conversations, projects, problems, or index files. Contains all formatting rules and page templates.
 ---
 
@@ -27,7 +27,7 @@ Links to section indexes only. Never add individual page entries here.
 ```markdown
 ---
 type: index
-date: YYYY-MM-DD
+date: YYYY-MM-DD HH:mm:ss
 ---
 # Knowledge Base - index
 
@@ -49,7 +49,7 @@ One per section. Alphabetically sorted. Add one line per new page; update summar
 ```markdown
 ---
 type: index
-date: YYYY-MM-DD
+date: YYYY-MM-DD HH:mm:ss
 ---
 # <Type> - index
 [[wiki/index|← Index]]
@@ -68,7 +68,7 @@ date: YYYY-MM-DD
 ---
 type: decision
 status: accepted | superseded | proposed
-date: YYYY-MM-DD
+date: YYYY-MM-DD HH:mm:ss
 systems:
   - system-name
 people:
@@ -195,7 +195,7 @@ type: conversation
 ---
 type: project
 status: active | closed | paused
-started: YYYY-MM-DD
+started: YYYY-MM-DD HH:mm:ss
 ---
 # <Title>
 ## Project description and goals
@@ -219,7 +219,7 @@ started: YYYY-MM-DD
 ---
 type: problem
 status: open | closed | deferred
-started: YYYY-MM-DD
+started: YYYY-MM-DD HH:mm:ss
 ---
 # <Title>
 ## Problem statement and goal
