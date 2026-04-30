@@ -162,6 +162,7 @@ and make sure it is safe to install. And if it is safe, install it. This is the 
 
 ```
 <root>/
+├── .import/             ← in-progress batch import state (gitignored)
 ├── config/              ← config file for Obsidian web clipper
 ├── scripts/             ← helper scripts for CLAUDE.md
 ├── raw/

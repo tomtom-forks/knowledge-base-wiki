@@ -10,7 +10,7 @@
 #   --help         Print this help and exit
 #
 # Output files:
-#   raw/_batch-import-1.txt, raw/_batch-import-2.txt, …
+#   .import/batch-import-1.txt, .import/batch-import-2.txt, …
 #   Each file contains one file path per line.
 #
 # Exit codes:
@@ -40,9 +40,10 @@ done
 
 NOTES_DIR="raw/notes"
 LOG="wiki/log.jsonl"
+IMPORT_DIR=".import"
 
-existing_batches=( raw/_batch-import-*.txt )
-existing_logs=( raw/_batch-log-*.jsonl )
+existing_batches=( $IMPORT_DIR/batch-import-*.txt )
+existing_logs=( $IMPORT_DIR/batch-log-*.jsonl )
 has_batches=false
 has_logs=false
 [[ -e "${existing_batches[0]}" ]] && has_batches=true
@@ -63,7 +64,7 @@ if $has_batches || $has_logs; then
     $has_logs    && rm -f "${existing_logs[@]}"
 fi
 
-ingested=$(grep -hoP '"file":"\K[^"]+' "$LOG" raw/.session-*.jsonl 2>/dev/null | sort || true)
+ingested=$(grep -hoP '"file":"\K[^"]+' "$LOG" $IMPORT_DIR/batch-log-*.jsonl 2>/dev/null | sort || true)
 
 remaining=()
 while IFS= read -r line; do
@@ -86,16 +87,18 @@ if [[ $total -eq 0 ]]; then
     exit 0
 fi
 
+mkdir -p "$IMPORT_DIR"
+
 for idx in "${!remaining[@]}"; do
     batch=$(( idx / MAX_SIZE + 1 ))
-    echo "${remaining[$idx]}" >> "raw/_batch-import-$batch.txt"
+    echo "${remaining[$idx]}" >> "$IMPORT_DIR/batch-import-$batch.txt"
 done
 
 echo ""
 echo "Batch breakdown:"
 for ((i=1; i<=num_batches; i++)); do
-    count=$(grep -c . "raw/_batch-import-$i.txt" 2>/dev/null || echo 0)
-    echo "  raw/_batch-import-$i.txt : $count files"
+    count=$(grep -c . "$IMPORT_DIR/batch-import-$i.txt" 2>/dev/null || echo 0)
+    echo "  $IMPORT_DIR/batch-import-$i.txt : $count files"
 done
 
 echo ""

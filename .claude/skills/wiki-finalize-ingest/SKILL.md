@@ -10,18 +10,18 @@ description: Use when the user asks to finalize an ingest, merge batch logs, or 
 Before doing anything, verify there is something to finalize:
 
 ```bash
-ls raw/_batch-log-*.jsonl 2>/dev/null
-ls raw/_batch-import-*.txt 2>/dev/null
+ls .import/batch-log-*.jsonl 2>/dev/null
+ls .import/batch-import-*.txt 2>/dev/null
 ```
 
-- **No `_batch-log-*.jsonl` files AND no `_batch-import-*.txt` files**: nothing to finalize. Tell the user: "No batch import logs or files found. Nothing to finalize — run `wiki-ingest` to start a new import."
-- **Unclaimed `_batch-import-*.txt` files still exist** (not `.claimed.`): warn the user: "Some batches have not been processed yet. Make sure all `wiki-ingest-next-batch` sessions have finished before finalizing." Use `AskUserQuestion` to ask: "Proceed anyway (partial finalization) or abort?"
-- **Only `_batch-log-*.jsonl` files exist**: all batches are done — proceed to Step 1.
+- **No `batch-log-*.jsonl` files AND no `batch-import-*.txt` files**: nothing to finalize. Tell the user: "No batch import logs or files found. Nothing to finalize — run `wiki-ingest` to start a new import."
+- **Unclaimed `batch-import-*.txt` files still exist** (not `.claimed.`): warn the user: "Some batches have not been processed yet. Make sure all `wiki-ingest-next-batch` sessions have finished before finalizing." Use `AskUserQuestion` to ask: "Proceed anyway (partial finalization) or abort?"
+- **Only `batch-log-*.jsonl` files exist**: all batches are done — proceed to Step 1.
 
 ## Step 1 — Merge logs
 
-Append all `raw/_batch-log-*.jsonl` to `wiki/log.jsonl` (create `wiki/log.jsonl` if it doesn't exist). 
-Then delete all `raw/_batch-log-*.jsonl` and any remaining `raw/_batch-import-*.txt`.
+Append all `.import/batch-log-*.jsonl` to `wiki/log.jsonl` (create `wiki/log.jsonl` if it doesn't exist). 
+Then delete all `.import/batch-log-*.jsonl` and any remaining `.import/batch-import-*.txt`.
 
 ## Step 2 — Rebuild indexes
 
