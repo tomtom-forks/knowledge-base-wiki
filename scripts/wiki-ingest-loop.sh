@@ -147,6 +147,47 @@ wait_for_capacity() {
     done
 }
 
+# Wait up to TIMEOUT seconds, allowing ESC to cancel the loop.
+# Returns 0 to continue, 1 if the user pressed ESC.
+wait_with_cancel() {
+    local timeout="$1"
+
+    [ -t 0 ] || { sleep "$timeout"; return 0; }
+
+    local saved_tty
+    saved_tty=$(stty -g 2>/dev/null) || { sleep "$timeout"; return 0; }
+    stty -echo 2>/dev/null
+
+    printf "\n  Pausing %ds before next batch — press ESC to stop the loop.\n" "$timeout"
+
+    local elapsed=0
+    local cancelled=false
+
+    while [ "$elapsed" -lt "$timeout" ]; do
+        local remaining=$(( timeout - elapsed ))
+        printf "\r  Continuing in %2ds  (ESC = stop)" "$remaining"
+
+        local ch
+        IFS= read -r -s -n 1 -t 1 ch 2>/dev/null || true
+
+        if [[ "$ch" == $'\x1b' ]]; then
+            cancelled=true
+            break
+        fi
+
+        elapsed=$(( elapsed + 1 ))
+    done
+
+    stty "$saved_tty" 2>/dev/null
+    printf "\r%60s\r\n" ""
+
+    if [ "$cancelled" = true ]; then
+        echo "  Loop stopped by user (ESC)."
+        return 1
+    fi
+    return 0
+}
+
 # Count unclaimed batch-import-*.txt files.
 count_batch_files() {
     local -a files
@@ -196,7 +237,7 @@ run_phase_ingest() {
     echo "=== Phase 1: running /wiki-ingest ==="
     wait_for_capacity "before /wiki-ingest" > /dev/null
     echo "Starting /wiki-ingest..."
-    if ! claude --dangerously-skip-permissions -p "/wiki-ingest"; then
+    if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-ingest"; then
         echo "ERROR: /wiki-ingest exited with an error." >&2
         exit 1
     fi
@@ -219,7 +260,7 @@ run_phase_batches() {
         usage_before=$(wait_for_capacity "before batch $iteration of $total")
 
         echo "Starting /wiki-ingest-next-batch..."
-        if ! claude --dangerously-skip-permissions -p "/wiki-ingest-next-batch"; then
+        if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-ingest-next-batch"; then
             echo "ERROR: /wiki-ingest-next-batch failed on batch $iteration." >&2
             echo "Check $PROJECT_DIR/.import/ for current state." >&2
             exit 1
@@ -234,6 +275,10 @@ run_phase_batches() {
         else
             echo "Completed batch $iteration of $total."
         fi
+
+        if ! wait_with_cancel 30; then
+            break
+        fi
     done
 
     echo ""
@@ -245,7 +290,7 @@ run_phase_finalize() {
     echo "=== Phase 3: finalizing ==="
     wait_for_capacity "before /wiki-finalize-ingest" > /dev/null
     echo "Starting /wiki-finalize-ingest..."
-    if ! claude --dangerously-skip-permissions -p "/wiki-finalize-ingest"; then
+    if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-finalize-ingest"; then
         echo "ERROR: /wiki-finalize-ingest exited with an error." >&2
         exit 1
     fi
