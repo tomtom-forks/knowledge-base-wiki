@@ -136,7 +136,8 @@ def decode_header(value: str | None, field: str) -> str:
         return " ".join(result.split())
     except Exception as exc:
         warn(f"could not decode {field!r} header ({exc}); using raw value")
-        return " ".join(value.split())
+        raw = str(value) if not isinstance(value, str) else value
+        return " ".join(raw.split())
 
 
 # ---------------------------------------------------------------------------
