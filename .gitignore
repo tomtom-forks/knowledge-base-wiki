@@ -1,8 +1,8 @@
 config/personal_info.md
 .claude/settings.local.json
 .claude/skills/qmd
-.agents/skills
-.junie/skills
+.agents/
+.junie/
 .claudian/
 .gitnexus/
 .idea/
@@ -19,3 +19,4 @@ scripts/__pycache__/
 docs/
 raw/
 wiki/
+scripts/.junie/
