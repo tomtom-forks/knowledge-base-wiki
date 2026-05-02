@@ -17,20 +17,28 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HUD_CACHE="$HOME/.claude/plugins/claude-hud/.usage-cache.json"
 CACHE_TTL_SECONDS=120
-THRESHOLD=85
+THRESHOLD=80
 WAIT_SECS=1800
+MAX_ERRORS=5
+MAX_LOOPS=25
+ERROR_COUNT=0
+LOOP_COUNT=0
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--threshold N] [--help]
+Usage: $(basename "$0") [--threshold N] [--max-errors N] [--max-loops N] [--help]
 
 Autonomous wiki ingestion pipeline. Runs /wiki-ingest (if needed), then loops
 /wiki-ingest-next-batch until all batches are done, then finalizes. Pauses
 30 minutes whenever Claude's 5-hour usage is at or above the threshold.
 
 Options:
-  --threshold N   Usage percentage ceiling (default: 85). Each phase starts only
+  --threshold N   Usage percentage ceiling (default: 80). Each phase starts only
                   when current usage is strictly below this value.
+  --max-errors N  Maximum number of claude command errors before the script
+                  exits (default: 5). Each error pauses for confirmation first.
+  --max-loops N   Maximum number of batch loops to run (default: 25). The
+                  script exits cleanly after this many iterations.
   --help          Show this help and exit.
 
 Data sources (in order of preference):
@@ -48,8 +56,10 @@ EOF
 # Parse flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --threshold) THRESHOLD="$2"; shift 2 ;;
-        --help|-h)   usage; exit 0 ;;
+        --threshold)  THRESHOLD="$2";  shift 2 ;;
+        --max-errors) MAX_ERRORS="$2"; shift 2 ;;
+        --max-loops)  MAX_LOOPS="$2";  shift 2 ;;
+        --help|-h)    usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
@@ -216,21 +226,85 @@ show_plan() {
     echo "  Phase 3  /wiki-finalize-ingest"
     echo ""
     printf "Pauses 30 min if 5-hour usage ≥ %s%%.\n" "$THRESHOLD"
+    printf "Max loops: %s  |  Max errors: %s\n" "$MAX_LOOPS" "$MAX_ERRORS"
     echo ""
 }
 
+# Prompt Y/n with Enter=Yes, Escape=No.
+# Auto-advances to Yes after 60 seconds, showing a live countdown.
+# Returns 0 to continue, 1 if the user declined.
+confirm_yn() {
+    local prompt="${1:-Continue?}"
+    local timeout=60
+
+    [ -t 0 ] || return 0   # non-interactive: default Yes
+
+    local saved_tty
+    saved_tty=$(stty -g 2>/dev/null) || { return 0; }
+    stty -echo -icanon min 1 time 0 2>/dev/null
+
+    local elapsed=0 result=0 decided=false
+
+    while [ "$elapsed" -le "$timeout" ]; do
+        local remaining=$(( timeout - elapsed ))
+        printf "\r%s [Y/n] (continuing in %2ds) " "$prompt" "$remaining"
+
+        local ch
+        if IFS= read -r -s -n 1 -t 1 ch 2>/dev/null; then
+            # A key was pressed
+            case "$ch" in
+                ''|$'\n'|$'\r'|y|Y)   # Enter or Y → Yes
+                    printf "\r%s [Y/n] Yes%-30s\n" "$prompt" ""
+                    result=0; decided=true
+                    break
+                    ;;
+                n|N)
+                    printf "\r%s [Y/n] No%-30s\n" "$prompt" ""
+                    result=1; decided=true
+                    break
+                    ;;
+                $'\x1b')              # Escape → No
+                    printf "\r%s [Y/n] No%-30s\n" "$prompt" ""
+                    result=1; decided=true
+                    break
+                    ;;
+            esac
+        fi
+        # Timed out waiting for a key (or unrecognised key) — advance counter
+        elapsed=$(( elapsed + 1 ))
+    done
+
+    if [ "$decided" = false ]; then
+        printf "\r%s [Y/n] Yes (auto-advanced after %ds)%-10s\n" "$prompt" "$timeout" ""
+        result=0
+    fi
+
+    stty "$saved_tty" 2>/dev/null
+    return "$result"
+}
+
 confirm_or_exit() {
-    if [ ! -t 0 ]; then
-        echo "Error: stdin is not a terminal — cannot prompt for confirmation." >&2
+    if ! confirm_yn "Start the wiki ingest pipeline?"; then
+        echo "Stopped."
+        exit 0
+    fi
+}
+
+# Prompt to continue after an error; also enforces MAX_ERRORS limit.
+confirm_after_error() {
+    local context="$1"
+    ERROR_COUNT=$(( ERROR_COUNT + 1 ))
+    echo "  [Error $ERROR_COUNT of $MAX_ERRORS allowed]"
+    if [ "$ERROR_COUNT" -ge "$MAX_ERRORS" ]; then
+        echo ""
+        echo "ERROR: Maximum error count ($MAX_ERRORS) reached after: $context" >&2
+        echo "Exiting. Inspect $PROJECT_DIR/.import/ for current state." >&2
         exit 1
     fi
-    local answer
-    read -r -p "Proceed? [y/N] " answer
-    echo ""
-    case "$answer" in
-        [yY]|[yY][eE][sS]) return 0 ;;
-        *) echo "Aborted."; exit 0 ;;
-    esac
+    if ! confirm_yn "Error in $context — continue anyway?"; then
+        echo "Stopped by user after error."
+        exit 1
+    fi
 }
 
 run_phase_ingest() {
@@ -238,11 +312,11 @@ run_phase_ingest() {
     wait_for_capacity "before /wiki-ingest" > /dev/null
     echo "Starting /wiki-ingest..."
     if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-ingest"; then
-        echo "ERROR: /wiki-ingest exited with an error." >&2
-        exit 1
+        echo "ERROR: /wiki-ingest exited with an error.  Time: $(date '+%H:%M:%S')" >&2
+        confirm_after_error "/wiki-ingest"
     fi
     echo ""
-    echo "/wiki-ingest complete."
+    echo "/wiki-ingest complete.  Time: $(date '+%H:%M:%S')"
 }
 
 run_phase_batches() {
@@ -251,19 +325,28 @@ run_phase_batches() {
 
     while compgen -G "$PROJECT_DIR/.import/batch-import-*.txt" > /dev/null 2>&1; do
         iteration=$(( iteration + 1 ))
+        LOOP_COUNT=$(( LOOP_COUNT + 1 ))
+
+        if [ "$LOOP_COUNT" -gt "$MAX_LOOPS" ]; then
+            echo ""
+            echo "INFO: Maximum loop count ($MAX_LOOPS) reached after $iteration batch iteration(s)."
+            echo "Exiting cleanly. Remaining batches can be processed by re-running the script."
+            return 0
+        fi
+
         local remaining
         remaining=$(count_batch_files)
         echo ""
-        echo "=== Phase 2 — batch $iteration of $total  ($remaining remaining) ==="
+        echo "=== Phase 2 — batch $iteration of $total  ($remaining remaining, loop $LOOP_COUNT/$MAX_LOOPS) ==="
 
         local usage_before
         usage_before=$(wait_for_capacity "before batch $iteration of $total")
 
         echo "Starting /wiki-ingest-next-batch..."
         if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-ingest-next-batch"; then
-            echo "ERROR: /wiki-ingest-next-batch failed on batch $iteration." >&2
+            echo "ERROR: /wiki-ingest-next-batch failed on batch $iteration.  Time: $(date '+%H:%M:%S')" >&2
             echo "Check $PROJECT_DIR/.import/ for current state." >&2
-            exit 1
+            confirm_after_error "/wiki-ingest-next-batch (batch $iteration)"
         fi
 
         echo ""
@@ -271,9 +354,9 @@ run_phase_batches() {
         if usage_after=$(get_usage 2>/dev/null); then
             local delta=$(( usage_after - usage_before ))
             local sign=""; [ "$delta" -ge 0 ] && sign="+"
-            echo "Completed batch $iteration of $total.  5-hour usage: ${usage_after}%  (${sign}${delta}%)"
+            echo "Completed batch $iteration of $total.  5-hour usage: ${usage_after}%  (${sign}${delta}%)  Time: $(date '+%H:%M:%S')"
         else
-            echo "Completed batch $iteration of $total."
+            echo "Completed batch $iteration of $total.  Time: $(date '+%H:%M:%S')"
         fi
 
         if ! wait_with_cancel 30; then
@@ -291,11 +374,11 @@ run_phase_finalize() {
     wait_for_capacity "before /wiki-finalize-ingest" > /dev/null
     echo "Starting /wiki-finalize-ingest..."
     if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-finalize-ingest"; then
-        echo "ERROR: /wiki-finalize-ingest exited with an error." >&2
-        exit 1
+        echo "ERROR: /wiki-finalize-ingest exited with an error.  Time: $(date '+%H:%M:%S')" >&2
+        confirm_after_error "/wiki-finalize-ingest"
     fi
     echo ""
-    echo "Pipeline complete."
+    echo "Pipeline complete.  Time: $(date '+%H:%M:%S')"
 }
 
 main() {
@@ -309,6 +392,7 @@ main() {
         needs_ingest=true
     fi
 
+    echo "Start time: $(date '+%H:%M:%S')"
     show_plan "$needs_ingest" "$batch_count"
     confirm_or_exit
 
