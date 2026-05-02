@@ -10,7 +10,7 @@ The primary goal is **efficient decision intelligence**: understanding why decis
 
 **Division of labor:** 
 - The user curates source files in `raw/`.
-- Claude does all writing, cross-referencing, and bookkeeping in `wiki/`. 
+- LLM does all writing, cross-referencing, and bookkeeping in `wiki/`. 
 
 ## In a nutshell
 
@@ -24,7 +24,7 @@ Access to the knowledge base is as follows:
 - **ingest notes**
 	- user asks to "ingest new raw notes" or "ingest Confluence page `<URL>`"
 	- LLM converts non-Markdown inputs: `.vtt` transcripts → `raw/transcripts/converted/`, `.eml` emails → `raw/emails/converted/`, `.pdf/.jpg` scans → `raw/scans/converted/`
-	- LLM partitions files into batches and processes them (large ingests use parallel Claude sessions 2–5; single batches are handled in one session)
+	- LLM partitions files into batches and processes them (large ingests use parallel LLM sessions 2–5; single batches are handled in one session)
 	- After all batches are done, user says "finalize ingest" to merge session logs, rebuild `_index.md` files, and run post-processing (QMD re-index + health check)
 - **query wiki**
 	- user asks a high-level question
@@ -36,38 +36,41 @@ The combination of using a semantic database to fetch relevant pages before anal
 
 ## Commands and skills
 
-These Claude Code slash commands and natural-language triggers are available:
+These skills commands and natural-language triggers are available:
 
-| Command / phrase | Description |
-| ---------------- | ----------- |
-| `/wiki:ingest` | Start a new ingest of raw notes (Session 1 — coordinator flow) |
-| `/wiki:ingest-next-batch` | Continue ingesting the next batch (Sessions 2–N flow) |
-| `/wiki:finalize-ingest` | Finalize the ingest: merge logs, rebuild indexes, run post-processing |
-| ask any question | Query the knowledge base (default behavior) |
-| "health check" or "lint" | Check for orphaned pages, broken links, contradictions |
-| "add missing [topic]" | Create a new wiki page for a missing concept, person, system, etc. |
-| "clear ingest batches" | Remove incomplete batch files to restart a failed ingest |
+| Command / phrase          | Description |
+| ----------------          | ----------- |
+| "ingest new notes:"       | Start a new ingest of raw notes (Session 1 — coordinator flow) |
+| "ingest next batch"       | Continue ingesting the next batch (Sessions 2–N flow) |
+| "finalize ingest"         | Finalize the ingest: merge logs, rebuild indexes, run post-processing |
+| "health check" or "lint"  | Check for orphaned pages, broken links, contradictions |
+| "add missing [topic]"     | Create a new wiki page for a missing concept, person, system, etc. |
+| "clear ingest batches"    | Remove incomplete batch files to restart a failed ingest |
+| ask any question          | Query the knowledge base (default behavior) |
 
-The `ingest next batch` and `finalize ingest` commands are only needed for importing large amounts of notes. Claude will notify you when you `ingest new notes` and it sees it requires batched importing.
+The `ingest next batch` and `finalize ingest` commands are only needed for importing large amounts of notes. LLM will notify you when you `ingest new notes` and it sees it requires batched importing.
+
+**Pro-tip:** you can also use the script "scripts/wiki-ingest-loop.sh" to start ingesting new notes. The advantage of this script is that it will try to ingest new notes in batches, and wait if your 5h limit has been reached. It will first execute "ingest new notes" followed by as many "ingest next batch" prompts as necessary (up to a specified maximum). Use "--help" for help for this script.
+
 
 ## Getting started
 
-This knowledge base setup uses a combination of Obsidian (front-end), Claude and QMD (database) to create that knowledge base. It consists of:
+This knowledge base setup uses a combination of Obsidian (front-end), LLM and QMD (database) to create that knowledge base. It consists of:
 
 - a `raw` directory, which is my territory: I put all my notes there; AI can only read this, not write
 - a `wiki` directory, which is consolidated information about the raw notes; this is almost exclusively AI territory
 
-After putting all your notes in the raw directories, the magic words for Claude are: “ingest new raw notes”. That will create the wiki and update the semantic database (QMD). After that you can ask all sorts of questions to Claude and it can efficiently reason over 100s or 1000s of pages (I’m using 2700 pages now and it seems to work just fine).
+After putting all your notes in the raw directories, the magic words for LLM are: “ingest new raw notes”. That will create the wiki and update the semantic database (QMD). After that you can ask all sorts of questions to LLM and it can efficiently reason over 100s or 1000s of pages (I’m using 2700 pages now and it seems to work just fine).
 
-The keyword here is AI efficiency: if you have 10s of notes, you don’t need any of this. If you have 100s, you’re already burning tokens. If you have 1000s of notes, Claude won’t handle this well without a semantic database backing the search.
+The keyword here is AI efficiency: if you have 10s of notes, you don’t need any of this. If you have 100s, you’re already burning tokens. If you have 1000s of notes, LLM won’t handle this well without a semantic database backing the search.
 
-The directory is readable as an Obsidian vault. This is on purpose. Obsidian makes it really easy to add Markdown notes and read them, or do simple searches. You can use a Claude CLI next to it to query the same directory. Alternatively, you can run the whole thing in VS Code. 
+The directory is readable as an Obsidian vault. This is on purpose. Obsidian makes it really easy to add Markdown notes and read them, or do simple searches. You can use a LLM CLI next to it to query the same directory. Alternatively, you can run the whole thing in VS Code. 
 
 I’ve tried to make this pretty user-friendly, so putting stuff in the ‘raw’ directory is as easy as:
-- using Obsidian to create Markdown notes, and storing PDF or JPG attachments in the ‘\_resources’ directory (Claude will parse those and recognize handwriting and convert those to Markdown as well)
+- using Obsidian to create Markdown notes, and storing PDF or JPG attachments in the ‘\_resources’ directory (LLM will parse those and recognize handwriting and convert those to Markdown as well)
 - using the Obsidian Web Clipper to automatically clip articles to ‘raw/clips’ (clipper template provided in repo); this means it’s just one Shift-Cmd-O press to store an article in the right location
-- using drag-and-drop from Outlook to the ‘raw/emails’ directory to store ‘.eml’ files (Claude will use the provided conversion script to create perfect Markdowns of these); putting an alias to the email directory on your desktop makes it easy to find that directory for drag-and-drop 😊 
-- storing meeting transcripts (‘.vtt’) in ‘raw/transcripts’ (Claude will convert those to Markdown as well)
+- using drag-and-drop from Outlook to the ‘raw/emails’ directory to store ‘.eml’ files (LLM will use the provided conversion script to create perfect Markdowns of these); putting an alias to the email directory on your desktop makes it easy to find that directory for drag-and-drop 😊 
+- storing meeting transcripts (‘.vtt’) in ‘raw/transcripts’ (LLM will convert those to Markdown as well)
 
 ### Personalizing your setup
 
@@ -87,7 +90,7 @@ If the file is missing, or it contains no info topics, default topics will be us
 
 ### Re-creating the Wiki from Scratch
 
-To re-create the entire wiki, you can simply remove the `wiki/` directory, `/clear` the Claude conversations and ask it to `ingest new raw notes`. This will restart the entire ingestion process. Note that for large amounts of notes, this may be expensive and take a long time.
+To re-create the entire wiki, you can simply remove the `wiki/` directory, `/clear` the LLM conversations and ask it to `ingest new raw notes`. This will restart the entire ingestion process. Note that for large amounts of notes, this may be expensive and take a long time.
 
 ### Checking Your Database
 
@@ -115,7 +118,7 @@ For web clipping, install the [Obsidian Web Clipper](https://obsidian.md/clipper
 
 ### QMD
 
-QMD is the local semantic search engine that lets Claude query thousands of notes efficiently without reading every file.
+QMD is the local semantic search engine that lets LLM query thousands of notes efficiently without reading every file.
 
 Install via Homebrew:
 
@@ -135,7 +138,7 @@ Then build the index (this can take a while!):
 qmd update && qmd embed   
 ```
 
-Register QMD as a Claude Code MCP server (simply ask Claude to read this `README.md` and install it for you):
+Register QMD as a MCP server (simply ask LLM to read this `README.md` and install it for you):
 
 ```json
 {
@@ -148,11 +151,11 @@ Register QMD as a Claude Code MCP server (simply ask Claude to read this `README
 }
 ```
 
-Installing the Claude skill isn't needed - it's part of this repo. But if you want to do it manually (again):
+Installing the LLM skill isn't needed - it's part of this repo. But if you want to do it manually (again):
 ```sh
 qmd skill install --global --yes   # or omit --global if you want it local-omly
 ```
-Re-run `qmd update` (and `qmd embed`) after each ingest to keep the index current. Claude will prompt you to do this at the end of every ingest.
+Re-run `qmd update` (and `qmd embed`) after each ingest to keep the index current. LLM will prompt you to do this at the end of every ingest.
 
 ### Running Claude within Obsidian
 
@@ -211,8 +214,8 @@ The directories `raw` and `wiki` are not stored in Git. Create them manually bef
 
 ## Key rules
 
-- `raw/` is immutable — Claude never writes there (except `raw/confluence/` as a fetch cache).
-- `wiki/` is LLM-owned — Claude writes, the user reads.
+- `raw/` is immutable — LLM never writes there (except `raw/confluence/` as a fetch cache).
+- `wiki/` is LLM-owned — LLM writes, the user reads.
 - The relevant `wiki/<type>/_index.md` files are rebuilt and `wiki/log.jsonl` is updated on every finalized ingest.
 - Hand-curated content in wiki pages is never deleted or overwritten.
 
