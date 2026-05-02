@@ -5,7 +5,9 @@
 #   3. Run /wiki-finalize-ingest to wrap up.
 #
 # Pauses 30 minutes whenever the 5-hour Claude usage is at or above the
-# threshold, then retries automatically.
+# threshold, then retries automatically. Usage tracking is Claude-only;
+# for --agent junie or --agent vibe, get_usage always returns 0 so the
+# throttling loop is effectively disabled.
 #
 # The 5-hour usage percentage is fetched from the Anthropic API using the
 # OAuth token stored in the macOS Keychain (Claude Code-credentials).
@@ -23,19 +25,26 @@ MAX_ERRORS=5
 MAX_LOOPS=25
 ERROR_COUNT=0
 LOOP_COUNT=0
+AGENT=claude
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--threshold N] [--max-errors N] [--max-loops N] [--help]
+Usage: $(basename "$0") [--agent AGENT] [--threshold N] [--max-errors N] [--max-loops N] [--help]
 
 Autonomous wiki ingestion pipeline. Runs /wiki-ingest (if needed), then loops
 /wiki-ingest-next-batch until all batches are done, then finalizes. Pauses
-30 minutes whenever Claude's 5-hour usage is at or above the threshold.
+30 minutes whenever the 5-hour Claude usage is at or above the threshold.
+Throttling applies only to --agent claude; for junie and vibe, usage is
+reported as 0% (no throttling) since those agents don't expose a quota API.
 
 Options:
+  --agent AGENT   LLM agent command to use (default: claude).
+                  Allowed values: claude (Anthropic Claude),
+                                  junie  (JetBrains Junie),
+                                  vibe   (Mistral Vibe).
   --threshold N   Usage percentage ceiling (default: 80). Each phase starts only
                   when current usage is strictly below this value.
-  --max-errors N  Maximum number of claude command errors before the script
+  --max-errors N  Maximum number of LLM agent command errors before the script
                   exits (default: 5). Each error pauses for confirmation first.
   --max-loops N   Maximum number of batch loops to run (default: 25). The
                   script exits cleanly after this many iterations.
@@ -56,6 +65,12 @@ EOF
 # Parse flags
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --agent)
+            case "$2" in
+                claude|junie|vibe) AGENT="$2" ;;
+                *) echo "Unknown agent: $2 (allowed: claude, junie, vibe)" >&2; usage >&2; exit 1 ;;
+            esac
+            shift 2 ;;
         --threshold)  THRESHOLD="$2";  shift 2 ;;
         --max-errors) MAX_ERRORS="$2"; shift 2 ;;
         --max-loops)  MAX_LOOPS="$2";  shift 2 ;;
@@ -115,7 +130,13 @@ print(int(v))
 }
 
 # Resolve current 5-hour usage %, preferring a fresh API call.
+# Junie and Vibe don't expose a comparable usage endpoint, so we report 0%
+# for them — effectively disabling throttling for those agents.
 get_usage() {
+    if [ "$AGENT" != "claude" ]; then
+        echo 0
+        return 0
+    fi
     local pct
     if pct=$(fetch_from_api 2>/dev/null); then
         echo "$pct"
@@ -207,12 +228,25 @@ count_batch_files() {
     echo "${#files[@]}"
 }
 
+# Invoke the selected LLM agent with a slash-command prompt.
+# Usage: run_llm "<slash-command>"
+run_llm() {
+    local prompt="$1"
+    case "$AGENT" in
+        claude) claude --dangerously-skip-permissions --output-format text -p "$prompt" ;;
+        junie)  junie -p "$prompt" ;;
+        vibe)   vibe -p "$prompt" ;;
+    esac
+}
+
 show_plan() {
     local needs_ingest="$1"
     local batch_count="$2"
 
     echo ""
     echo "=== Wiki Ingest Pipeline ==="
+    echo ""
+    printf "LLM agent: %s\n" "$AGENT"
     echo ""
 
     if [ "$needs_ingest" = true ]; then
@@ -284,6 +318,7 @@ confirm_yn() {
 }
 
 confirm_or_exit() {
+    printf "Agent: %s\n" "$AGENT"
     if ! confirm_yn "Start the wiki ingest pipeline?"; then
         echo "Stopped."
         exit 0
@@ -311,7 +346,7 @@ run_phase_ingest() {
     echo "=== Phase 1: running /wiki-ingest ==="
     wait_for_capacity "before /wiki-ingest" > /dev/null
     echo "Starting /wiki-ingest..."
-    if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-ingest"; then
+    if ! run_llm "/wiki-ingest"; then
         echo "ERROR: /wiki-ingest exited with an error.  Time: $(date '+%H:%M:%S')" >&2
         confirm_after_error "/wiki-ingest"
     fi
@@ -343,7 +378,7 @@ run_phase_batches() {
         usage_before=$(wait_for_capacity "before batch $iteration of $total")
 
         echo "Starting /wiki-ingest-next-batch..."
-        if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-ingest-next-batch"; then
+        if ! run_llm "/wiki-ingest-next-batch"; then
             echo "ERROR: /wiki-ingest-next-batch failed on batch $iteration.  Time: $(date '+%H:%M:%S')" >&2
             echo "Check $PROJECT_DIR/.import/ for current state." >&2
             confirm_after_error "/wiki-ingest-next-batch (batch $iteration)"
@@ -373,7 +408,7 @@ run_phase_finalize() {
     echo "=== Phase 3: finalizing ==="
     wait_for_capacity "before /wiki-finalize-ingest" > /dev/null
     echo "Starting /wiki-finalize-ingest..."
-    if ! claude --dangerously-skip-permissions --output-format text -p "/wiki-finalize-ingest"; then
+    if ! run_llm "/wiki-finalize-ingest"; then
         echo "ERROR: /wiki-finalize-ingest exited with an error.  Time: $(date '+%H:%M:%S')" >&2
         confirm_after_error "/wiki-finalize-ingest"
     fi
