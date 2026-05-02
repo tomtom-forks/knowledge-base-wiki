@@ -60,7 +60,8 @@ Data sources (in order of preference):
                     (used when API is unreachable; max age: ${CACHE_TTL_SECONDS}s)
 
 Exit codes:
-  0  Full pipeline complete (ingest → batches → finalize).
+  0  Full pipeline complete (ingest → batches → finalize), or cleanly
+     paused at --max-loops limit (finalize intentionally skipped).
   1  Interrupted or unexpected error.
 EOF
 }
@@ -423,8 +424,9 @@ run_phase_batches() {
         if [ "$LOOP_COUNT" -gt "$MAX_LOOPS" ]; then
             echo ""
             echo "INFO: Maximum loop count ($MAX_LOOPS) reached after $iteration batch iteration(s)."
-            echo "Exiting cleanly. Remaining batches can be processed by re-running the script."
-            return 0
+            echo "INFO: Remaining batches can be processed by re-running the script."
+            echo "INFO: Skipping finalize — not all batches have been consumed."
+            return 2
         fi
 
         local remaining
@@ -512,11 +514,22 @@ main() {
         echo "Phase 1 created $batch_count batch file(s)."
     fi
 
+    local batches_rc=0
     if [ "$batch_count" -eq 0 ]; then
         echo "No batch files to process — skipping Phase 2." >&2
     else
         echo "/wiki-ingest-next-batch: $batch_count remaining to process." >&2
+        set +e
         run_phase_batches "$batch_count"
+        batches_rc=$?
+        set -e
+    fi
+
+    if [ "$batches_rc" -eq 2 ]; then
+        echo ""
+        echo "Pipeline paused at max-loops limit — finalize skipped."
+        echo "Re-run the script to continue from where it left off."
+        exit 0
     fi
 
     run_phase_finalize
