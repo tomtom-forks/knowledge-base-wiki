@@ -435,13 +435,14 @@ main() {
         run_phase_ingest
         batch_count=$(count_batch_files)
         echo "Phase 1 created $batch_count batch file(s)."
-        if [ "$batch_count" -eq 0 ]; then
-            echo "ERROR: /wiki-ingest completed but created no batch files. Nothing to process." >&2
-            exit 1
-        fi
     fi
 
-    run_phase_batches "$batch_count"
+    if [ "$batch_count" -eq 0 ]; then
+        echo "/wiki-ingest: completed all notes in 1 batch." >&2
+    else
+        echo "/wiki-ingest-next-batch: $batch_count remaining to process." >&2
+        run_phase_batches "$batch_count"
+    fi
 
     run_phase_finalize
 }
