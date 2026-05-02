@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-lint-wiki-pages.py — Scan Markdown files for broken internal and external links.
+wiki-lint-check.py — Scan Markdown files for broken internal and external links.
 
 Output is structured JSON designed for AI consumption:
   {
@@ -2137,29 +2137,29 @@ def parse_args():
         epilog="""
 Examples:
   # Scan vault rooted at the script's parent directory:
-  python3 lint-wiki-pages.py
+  python3 wiki-lint-check.py
 
   # Scan a specific vault directory:
-  python3 lint-wiki-pages.py /path/to/vault
+  python3 wiki-lint-check.py /path/to/vault
 
   # Human-readable output:
-  python3 lint-wiki-pages.py --format text
+  python3 wiki-lint-check.py --format text
 
   # Include external HTTP link checks:
-  python3 lint-wiki-pages.py --external --timeout 10
+  python3 wiki-lint-check.py --external --timeout 10
 
   # Include image embeds in checks:
-  python3 lint-wiki-pages.py --include-images
+  python3 wiki-lint-check.py --include-images
 
   # Skip frontmatter links (e.g. author: [[Name]] in raw/clips):
-  python3 lint-wiki-pages.py --skip-frontmatter
+  python3 wiki-lint-check.py --skip-frontmatter
 
   # Show suggested fixes for broken wikilinks, then apply them:
-  python3 lint-wiki-pages.py --format text
-  python3 lint-wiki-pages.py --fix-simple-errors
+  python3 wiki-lint-check.py --format text
+  python3 wiki-lint-check.py --fix-simple-errors
 
   # Combine options:
-  python3 lint-wiki-pages.py --external --include-images --skip-frontmatter --format text /path/to/vault
+  python3 wiki-lint-check.py --external --include-images --skip-frontmatter --format text /path/to/vault
         """,
     )
     parser.add_argument(

@@ -93,11 +93,11 @@ To re-create the entire wiki, you can simply remove the `wiki/` directory, `/cle
 
 The database is automatically checked for errors after ingesting new notes, but sometimes the errors cannot be fixed automatically. You are advised to sometimes run:
 ```
-./scripts/lint-wiki-pages.py --format text
+./scripts/wiki-lint-check.py --format text
 ```
 This checks the consistency of your entire database. If you encounter problems, you can run:
 ```
-./scripts/lint-wiki-pages.py --interactive
+./scripts/wiki-lint-check.py --interactive
 ```
 This provides a UI to deal with broken links by
 - removing them, 

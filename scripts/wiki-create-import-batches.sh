@@ -2,7 +2,7 @@
 # Partitions un-ingested notes into batch files for parallel import sessions.
 #
 # Usage:
-#   bash scripts/create-import-batches.sh [--max-size N] [--force] [--help]
+#   bash scripts/wiki-create-import-batches.sh [--max-size N] [--force] [--help]
 #
 # Options:
 #   --max-size N   Maximum number of files per batch (default: 50)

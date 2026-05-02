@@ -39,7 +39,7 @@ fi
 find "$ROOT/wiki" -mindepth 1 ! -name ".gitkeep" -delete
 find "$ROOT/.import" -mindepth 1 ! -name ".gitkeep" -delete
 
-echo "Done. wiki/ and .import/ cleared."
+echo "Done. wiki/ and .import/ removed."
 
 if [[ "$FORCE" == true ]]; then
   "$SCRIPT_DIR/qmd-reset-collections.sh" --force

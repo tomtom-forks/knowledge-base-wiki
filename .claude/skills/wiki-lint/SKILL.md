@@ -10,14 +10,14 @@ description: Use when the user asks for a health check, lint, audit, or wants to
 Run this command first — it auto-fixes trivial wikilink mismatches and reports what remains broken:
 
 ```bash
-python3 scripts/lint-wiki-pages.py --fix
+python3 scripts/wiki-lint-check.py --fix
 ```
 
 - `--fix` repairs wikilinks where a unique normalized match exists (e.g. colons vs underscores in filenames). These are applied immediately without requiring user confirmation.
 - Report how many links were fixed, and list any remaining broken links for the user to review manually.
 - If there are problems left, suggest the user to run:
 ```bash
-python3 scripts/lint-wiki-pages.py --interactive
+python3 scripts/wiki-lint-check.py --interactive
 ```
 
 ## Step 2: Report stubs
