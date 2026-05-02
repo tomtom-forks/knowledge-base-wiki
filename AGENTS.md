@@ -1,1 +1,1 @@
-Please study AGENTS.md to learn about this repository.
+You must study `CLAUDE.md` to learn about the rules for this repository.
