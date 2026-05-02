@@ -19,7 +19,7 @@
 #   2  Existing batch or log files found (use --force to override)
 #
 # Machine-readable summary line (always last):
-#   RESULT: total=<N> batches=<N> max_size=<N> status=<ready|empty>
+#   RESULT: total=<N> new=<N> already_imported=<N> batches=<N> max_size=<N> status=<ready|empty>
 set -euo pipefail
 
 usage() {
@@ -64,26 +64,48 @@ if $has_batches || $has_logs; then
     $has_logs    && rm -f "${existing_logs[@]}"
 fi
 
-ingested=$(grep -hoP '"file":"\K[^"]+' "$LOG" $IMPORT_DIR/batch-log-*.jsonl 2>/dev/null | sort || true)
+log_sources=()
+if [[ -f "$LOG" ]]; then
+    log_sources+=("$LOG")
+    log_status="found"
+else
+    log_status="missing (no prior imports recorded)"
+fi
+shopt -s nullglob
+batch_logs=( "$IMPORT_DIR"/batch-log-*.jsonl )
+shopt -u nullglob
+log_sources+=( ${batch_logs[@]+"${batch_logs[@]}"} )
+
+if [[ ${#log_sources[@]} -gt 0 ]]; then
+    ingested=$(sed -nE 's/.*"file":"([^"]+)".*/\1/p' "${log_sources[@]}" 2>/dev/null | sort -u || true)
+else
+    ingested=""
+fi
+
+all_files=$(find "$NOTES_DIR" \( -name "*.md" -o -name "*.doc" -o -name "*.docx" -o -name "*.txt" -o -name "*.vtt" -o -name "*.eml" \) | sort)
 
 remaining=()
 while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
     remaining+=("$line")
-done < <(comm -23 \
-    <(find "$NOTES_DIR" \( -name "*.md" -o -name "*.doc" -o -name "*.docx" -o -name "*.txt" -o -name "*.vtt" -o -name "*.eml" \) | sort) \
-    <(echo "$ingested"))
+done < <(comm -23 <(echo "$all_files") <(echo "$ingested"))
 
+scanned=$(printf '%s\n' "$all_files" | grep -c . || true)
 total=${#remaining[@]}
+already_imported=$(( scanned - total ))
 num_batches=$(( (total + MAX_SIZE - 1) / MAX_SIZE ))
 [[ $total -eq 0 ]] && num_batches=0
 
-echo "Un-ingested notes : $total"
+echo "wiki/log.jsonl    : $log_status"
+echo "Files scanned     : $scanned"
+echo "Already imported  : $already_imported"
+echo "New (un-ingested) : $total"
 echo "Max files/batch   : $MAX_SIZE"
 echo "Batches to create : $num_batches"
 
 if [[ $total -eq 0 ]]; then
     echo "Nothing to ingest."
-    echo "RESULT: total=0 batches=0 max_size=$MAX_SIZE status=empty"
+    echo "RESULT: total=0 new=0 already_imported=$already_imported batches=0 max_size=$MAX_SIZE status=empty"
     exit 0
 fi
 
@@ -102,4 +124,4 @@ for ((i=1; i<=num_batches; i++)); do
 done
 
 echo ""
-echo "RESULT: total=$total batches=$num_batches max_size=$MAX_SIZE status=ready"
+echo "RESULT: total=$total new=$total already_imported=$already_imported batches=$num_batches max_size=$MAX_SIZE status=ready"
