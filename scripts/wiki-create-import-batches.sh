@@ -14,9 +14,10 @@
 #   Each file contains one file path per line.
 #
 # Exit codes:
-#   0  Success (including "nothing to ingest")
+#   0  Success (batches created)
 #   1  Invalid argument
 #   2  Existing batch or log files found (use --force to override)
+#   3  Nothing to ingest (no new notes found)
 #
 # Machine-readable summary line (always last):
 #   RESULT: total=<N> new=<N> already_imported=<N> batches=<N> max_size=<N> status=<ready|empty>
@@ -106,7 +107,7 @@ echo "Batches to create : $num_batches"
 if [[ $total -eq 0 ]]; then
     echo "Nothing to ingest."
     echo "RESULT: total=0 new=0 already_imported=$already_imported batches=0 max_size=$MAX_SIZE status=empty"
-    exit 0
+    exit 3
 fi
 
 mkdir -p "$IMPORT_DIR"

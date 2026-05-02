@@ -12,12 +12,12 @@ When asked to "ingest new raw notes" (or similar):
 1. **Partition** (run automatically): `bash scripts/wiki-create-import-batches.sh`
    - Default max batch size is 50 files. Override with `--max-size N` (e.g. `--max-size 20`).
    - This removes any old `.import/batch-import-*.txt` remnants and creates fresh ones.
-   - If output says "Nothing to ingest", report that and stop.
+   - **If the script exits with code 3**: there are no new notes to ingest. Report "Nothing to ingest" and stop.
    - **If the script exits with code 2**: a previous ingest was not completed. Use `AskUserQuestion` to ask the user what to do, with these options:
      - **"Ingest next batch"** — stop here and tell the user: "Use `wiki-ingest-next-batch` (or say `ingest next batch`) in a new session to continue."; do NOT re-run `wiki-create-import-batches.sh`.
      - **"Abort previous ingestion and restart importing new notes"** — re-run `bash scripts/wiki-create-import-batches.sh --force` to wipe old batches, then continue with this flow from step 2.
      - **"Abort"** — stop immediately and do nothing.
-   - Check the exit code explicitly after running the script: `bash scripts/wiki-create-import-batches.sh; echo "EXIT:$?"` and look for `EXIT:2`.
+   - Check the exit code explicitly after running the script: `bash scripts/wiki-create-import-batches.sh; echo "EXIT:$?"` and look for `EXIT:2` or `EXIT:3`.
 2. **Check how many batches have content**: count non-empty `.import/batch-import-*.txt` files (the script prints the count).
    - **If only 1 batch has content**: process it (step 3) and immediately proceed to Finalization — say "Batch done. Say `finalize ingest` (or `/wiki-finalize-ingest`) to wrap up."
    - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more LLM sessions. In each one say: `ingest next batch` (or `/wiki-ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki-finalize-ingest`) here." — then proceed to step 3.

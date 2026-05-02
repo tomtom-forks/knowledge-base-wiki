@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Autonomous wiki ingestion pipeline:
-#   1. If no batch-import files exist, run /wiki-ingest first.
+#   1. If no batch-import files exist, run scripts/wiki-create-import-batches.sh
+#      directly to partition new notes. If the script exits with code 3
+#      ("nothing to ingest"), the pipeline stops cleanly with exit 0 — no
+#      LLM calls are made and no finalization is run.
 #   2. Loop /wiki-ingest-next-batch until all batches are consumed.
 #   3. Run /wiki-finalize-ingest to wrap up.
 #
@@ -248,12 +251,45 @@ show_plan() {
     echo ""
     printf "LLM agent: %s\n" "$AGENT"
     echo ""
+    case "$AGENT" in
+        claude)
+            cat <<'BANNER'
+    ██████╗ ██╗      █████╗ ██╗   ██╗ ██████╗ ███████╗
+   ██╔════╝ ██║     ██╔══██╗██║   ██║ ██╔══██╗██╔════╝
+   ██║      ██║     ███████║██║   ██║ ██║  ██║█████╗
+   ██║      ██║     ██╔══██║██║   ██║ ██║  ██║██╔══╝
+   ╚██████╗ ███████╗██║  ██║╚██████╔╝ ██████╔╝███████╗
+    ╚═════╝ ╚══════╝╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝
+BANNER
+            ;;
+        junie)
+            cat <<'BANNER'
+        ██╗ ██╗   ██╗ ███╗   ██╗ ██╗ ███████╗
+        ██║ ██║   ██║ ████╗  ██║ ██║ ██╔════╝
+        ██║ ██║   ██║ ██╔██╗ ██║ ██║ █████╗
+   ██   ██║ ██║   ██║ ██║╚██╗██║ ██║ ██╔══╝
+   ╚█████╔╝ ╚██████╔╝ ██║ ╚████║ ██║ ███████╗
+    ╚════╝   ╚═════╝  ╚═╝  ╚═══╝ ╚═╝ ╚══════╝
+BANNER
+            ;;
+        vibe)
+            cat <<'BANNER'
+   ██╗   ██╗ ██╗ ██████╗  ███████╗
+   ██║   ██║ ██║ ██╔══██╗ ██╔════╝
+   ██║   ██║ ██║ ██████╔╝ █████╗
+   ╚██╗ ██╔╝ ██║ ██╔══██╗ ██╔══╝
+    ╚████╔╝  ██║ ██████╔╝ ███████╗
+     ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝
+BANNER
+            ;;
+    esac
+    echo ""
 
     if [ "$needs_ingest" = true ]; then
-        echo "  Phase 1  /wiki-ingest              (no batch files — will create batches)"
+        echo "  Phase 1  partition new notes       (wiki-create-import-batches.sh — may exit early if nothing to ingest)"
         echo "  Phase 2  /wiki-ingest-next-batch   (batch count determined after phase 1)"
     else
-        echo "  Phase 1  /wiki-ingest              (skipped — ${batch_count} batch file(s) already exist)"
+        echo "  Phase 1  partition new notes       (skipped — ${batch_count} batch file(s) already exist)"
         echo "  Phase 2  /wiki-ingest-next-batch   ${batch_count} batch(es)"
     fi
 
@@ -342,16 +378,38 @@ confirm_after_error() {
     fi
 }
 
-run_phase_ingest() {
-    echo "=== Phase 1: running /wiki-ingest ==="
-    wait_for_capacity "before /wiki-ingest" > /dev/null
-    echo "Starting /wiki-ingest..."
-    if ! run_llm "/wiki-ingest"; then
-        echo "ERROR: /wiki-ingest exited with an error.  Time: $(date '+%H:%M:%S')" >&2
-        confirm_after_error "/wiki-ingest"
-    fi
-    echo ""
-    echo "/wiki-ingest complete.  Time: $(date '+%H:%M:%S')"
+ND_NOTHING_TO_INGEST=3
+
+# Run the partition script directly so we can react to its exit code,
+# in particular code 3 ("nothing to ingest") — which lets us skip the
+# LLM call entirely instead of paying for an /wiki-ingest round-trip.
+#
+# Returns:
+#   0  Batches were created. Caller should proceed to Phase 2.
+#   3  Nothing to ingest. Caller should stop the pipeline cleanly.
+#   *  Anything else is treated as a fatal error and aborts the script.
+run_phase_partition() {
+    echo "=== Phase 1: partitioning new notes into batches ==="
+    echo "Running scripts/wiki-create-import-batches.sh..."
+    set +e
+    bash "$PROJECT_DIR/scripts/wiki-create-import-batches.sh"
+    local rc=$?
+    set -e
+
+    case "$rc" in
+        0)
+            echo ""
+            echo "Partitioning complete.  Time: $(date '+%H:%M:%S')"
+            return 0
+            ;;
+        "$ND_NOTHING_TO_INGEST")
+            return "$ND_NOTHING_TO_INGEST"
+            ;;
+        *)
+            echo "ERROR: wiki-create-import-batches.sh exited with status $rc.  Time: $(date '+%H:%M:%S')" >&2
+            exit 1
+            ;;
+    esac
 }
 
 run_phase_batches() {
@@ -432,13 +490,30 @@ main() {
     confirm_or_exit
 
     if [ "$needs_ingest" = true ]; then
-        run_phase_ingest
+        set +e
+        run_phase_partition
+        local partition_rc=$?
+        set -e
+
+        if [ "$partition_rc" -eq "$ND_NOTHING_TO_INGEST" ]; then
+            echo ""
+            echo "============================================================"
+            echo " Nothing to ingest."
+            echo " wiki-create-import-batches.sh reported no new notes"
+            echo " (exit code 3). All raw notes are already recorded in"
+            echo " wiki/log.jsonl, so there is no batch to process and no"
+            echo " finalization is needed."
+            echo "============================================================"
+            echo "Pipeline finished cleanly.  Time: $(date '+%H:%M:%S')"
+            exit 0
+        fi
+
         batch_count=$(count_batch_files)
         echo "Phase 1 created $batch_count batch file(s)."
     fi
 
     if [ "$batch_count" -eq 0 ]; then
-        echo "/wiki-ingest: completed all notes in 1 batch." >&2
+        echo "No batch files to process — skipping Phase 2." >&2
     else
         echo "/wiki-ingest-next-batch: $batch_count remaining to process." >&2
         run_phase_batches "$batch_count"
