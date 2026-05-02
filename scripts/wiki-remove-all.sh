@@ -47,4 +47,4 @@ else
   "$SCRIPT_DIR/qmd-reset-collections.sh"
 fi
 
-echo "Run prompt '/wiki-ingest' in Claude to recreate the wiki."
+echo "Run prompt 'ingest new notes' in the LLM to recreate the wiki."

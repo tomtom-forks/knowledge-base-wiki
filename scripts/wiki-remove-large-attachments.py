@@ -15,12 +15,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-VAULT = Path("/Users/ribu/Library/Mobile Documents/iCloud~md~obsidian/Documents/TomTom")
+VAULT = Path.cwd()
 TRASH = VAULT / ".trash"
 LOG = VAULT / "wiki" / "log.md"
 MIN_SIZE = 50 * 1024  # show files >= 50 KB
 
-SKIP_DIRS = {".obsidian", ".trash", ".git", ".claude", ".agents", "scripts", "templates", "config"}
+SKIP_DIRS = {".obsidian", ".trash", ".git", ".claude", ".junie", ".agents", "scripts", "templates", "config"}
 
 ATTACHMENT_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".tiff", ".tif",
