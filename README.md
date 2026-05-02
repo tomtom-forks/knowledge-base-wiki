@@ -52,6 +52,12 @@ The `ingest next batch` and `finalize ingest` commands are only needed for impor
 
 **Pro-tip:** you can also use the script "scripts/wiki-ingest-loop.sh" to start ingesting new notes. The advantage of this script is that it will try to ingest new notes in batches, and wait if your 5h limit has been reached. It will first execute "ingest new notes" followed by as many "ingest next batch" prompts as necessary (up to a specified maximum). Use "--help" for help for this script.
 
+You start it for a specific agent (Claude CLI or Junie CLI), like this
+```
+scripts/wiki-ingest.loop.sh [--agent claude|junie]    <-- or use --help for more info
+```
+
+
 
 ## Getting started
 
