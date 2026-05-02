@@ -233,9 +233,9 @@ count_batch_files() {
 run_llm() {
     local prompt="$1"
     case "$AGENT" in
-        claude) claude --dangerously-skip-permissions --output-format text -p "$prompt" ;;
-        junie)  junie -p "$prompt" ;;
-        vibe)   vibe -p "$prompt" ;;
+        claude) claude --dangerously-skip-permissions --output-format text --print "$prompt" ;;
+        junie)  junie --brave --skip-update-check --output-format=text --task "$prompt" ;;
+        vibe)   vibe --output text --trust --prompt "$prompt" ;;
     esac
 }
 
