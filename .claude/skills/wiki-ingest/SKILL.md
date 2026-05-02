@@ -20,7 +20,7 @@ When asked to "ingest new raw notes" (or similar):
    - Check the exit code explicitly after running the script: `bash scripts/wiki-create-import-batches.sh; echo "EXIT:$?"` and look for `EXIT:2`.
 2. **Check how many batches have content**: count non-empty `.import/batch-import-*.txt` files (the script prints the count).
    - **If only 1 batch has content**: process it (step 3) and immediately proceed to Finalization — say "Batch done. Say `finalize ingest` (or `/wiki-finalize-ingest`) to wrap up."
-   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more Claude Code sessions. In each one say: `ingest next batch` (or `/wiki-ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki-finalize-ingest`) here." — then proceed to step 3.
+   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more LLM sessions. In each one say: `ingest next batch` (or `/wiki-ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki-finalize-ingest`) here." — then proceed to step 3.
 3. **Process batch 1**: first claim it atomically:
    ```bash
    mv .import/batch-import-1.txt .import/batch-import-1.claimed.txt
