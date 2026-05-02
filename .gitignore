@@ -15,6 +15,7 @@ config/personal_info.md
 .obsidian/workspace-mobile.json
 .trash/
 .import/
+.output.txt
 scripts/__pycache__/
 docs/
 raw/
