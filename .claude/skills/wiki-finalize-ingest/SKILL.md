@@ -27,22 +27,13 @@ Then delete all `.import/batch-log-*.jsonl` and any remaining `.import/batch-imp
 
 ## Step 2 — Rebuild indexes
 
-For every topic directory in `wiki/`:
+Run the index-page script from the project root:
 
-- List all `.md` files in the directory (excluding `_index.md`).
-- For each file: extract the title (first `#` heading, or filename without extension) and a 1-sentence summary (first non-heading, non-empty paragraph).
-- Write a fresh `_index.md` using vault-relative wikilinks, sorted alphabetically: `- [[wiki/<topic>/Page Title]] — summary`.
-- Preserve (or create if missing) the standard header structure:
-  ```markdown
-  ---
-  type: index
-  date: YYYY-MM-DD HH:mm:ss
-  ---
-  # <Type> - index
-  [[wiki/index|← Index]]
+```bash
+python3 scripts/wiki-create-index-pages.py
+```
 
-  <One-sentence description of what this topic type covers.>
-  ```
+This rebuilds `wiki/index.md` and all `wiki/<topic>/_index.md` files.
 
 ## Step 3 — Report stubs
 

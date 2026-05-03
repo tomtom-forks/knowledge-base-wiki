@@ -115,10 +115,11 @@ Do not modify any other content of those pages.
 
 ## Step 7 — Update the index
 
-1. Read `wiki/<topic>/_index.md`.
-2. Add a new entry for the new page in **alphabetical order** among the existing entries.
-3. Use vault-relative wikilink format: `[[wiki/<topic>/<Name>|<Name>]] — <one-sentence description>`
-4. Write the updated index back.
+Run the index-page script from the project root to rebuild all topic indexes:
+
+```bash
+python3 scripts/wiki-create-index-pages.py
+```
 
 ---
 
