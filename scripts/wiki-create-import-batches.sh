@@ -2,12 +2,12 @@
 # Partitions un-ingested notes into batch files for parallel import sessions.
 #
 # Usage:
-#   bash scripts/wiki-create-import-batches.sh [--max-size N] [--force] [--help]
+#   bash scripts/wiki-create-import-batches.sh [--max-files-per-batch N] [--force] [--help]
 #
 # Options:
-#   --max-size N   Maximum number of files per batch (default: 50)
-#   --force        Remove existing batch/log files before running
-#   --help         Print this help and exit
+#   --max-files-per-batch N   Maximum number of files per batch (default: 50)
+#   --force                   Remove existing batch/log files before running
+#   --help                    Print this help and exit
 #
 # Output files:
 #   .import/batch-import-1.txt, .import/batch-import-2.txt, …
@@ -20,7 +20,7 @@
 #   3  Nothing to ingest (no new notes found)
 #
 # Machine-readable summary line (always last):
-#   RESULT: total=<N> new=<N> already_imported=<N> batches=<N> max_size=<N> status=<ready|empty>
+#   RESULT: total=<N> new=<N> already_imported=<N> batches=<N> max_files_per_batch=<N> status=<ready|empty>
 set -euo pipefail
 
 usage() {
@@ -32,7 +32,7 @@ MAX_SIZE=50
 FORCE=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --max-size) MAX_SIZE="$2"; shift 2 ;;
+        --max-files-per-batch) MAX_SIZE="$2"; shift 2 ;;
         --force)    FORCE=true; shift ;;
         --help|-h)  usage ;;
         *) echo "ERROR: Unknown argument: $1" >&2; echo "Run with --help for usage." >&2; exit 1 ;;
@@ -101,12 +101,12 @@ echo "wiki/log.jsonl    : $log_status"
 echo "Files scanned     : $scanned"
 echo "Already imported  : $already_imported"
 echo "New (un-ingested) : $total"
-echo "Max files/batch   : $MAX_SIZE"
+echo "Max files/batch   : $MAX_SIZE (--max-files-per-batch)"
 echo "Batches to create : $num_batches"
 
 if [[ $total -eq 0 ]]; then
     echo "Nothing to ingest."
-    echo "RESULT: total=0 new=0 already_imported=$already_imported batches=0 max_size=$MAX_SIZE status=empty"
+    echo "RESULT: total=0 new=0 already_imported=$already_imported batches=0 max_files_per_batch=$MAX_SIZE status=empty"
     exit 3
 fi
 
@@ -125,4 +125,4 @@ for ((i=1; i<=num_batches; i++)); do
 done
 
 echo ""
-echo "RESULT: total=$total new=$total already_imported=$already_imported batches=$num_batches max_size=$MAX_SIZE status=ready"
+echo "RESULT: total=$total new=$total already_imported=$already_imported batches=$num_batches max_files_per_batch=$MAX_SIZE status=ready"

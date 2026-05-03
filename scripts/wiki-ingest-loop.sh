@@ -27,13 +27,14 @@ THRESHOLD=80
 WAIT_SECS=1800
 MAX_ERRORS=5
 MAX_LOOPS=25
+MAX_FILES_PER_BATCH=50
 ERROR_COUNT=0
 LOOP_COUNT=0
 AGENT=claude
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--agent AGENT] [--threshold N] [--max-errors N] [--max-loops N] [--help]
+Usage: $(basename "$0") [--agent AGENT] [--threshold N] [--max-errors N] [--max-loops N] [--max-files-per-batch N] [--help]
 
 Autonomous wiki ingestion pipeline. Runs /wiki-ingest (if needed), then loops
 /wiki-ingest-next-batch until all batches are done, then finalizes. Pauses
@@ -42,16 +43,18 @@ Throttling applies only to --agent claude; for junie, usage is reported as
 0% (no throttling) since junie doesn't expose a quota API.
 
 Options:
-  --agent AGENT   LLM agent command to use (default: claude).
-                  Allowed values: claude (Anthropic Claude),
-                                  junie  (JetBrains Junie).
-  --threshold N   Usage percentage ceiling (default: 80). Each phase starts only
-                  when current usage is strictly below this value.
-  --max-errors N  Maximum number of LLM agent command errors before the script
-                  exits (default: 5). Each error pauses for confirmation first.
-  --max-loops N   Maximum number of batch loops to run (default: 25). The
-                  script exits cleanly after this many iterations.
-  --help          Show this help and exit.
+  --agent AGENT              LLM agent command to use (default: claude).
+                             Allowed values: claude (Anthropic Claude),
+                                             junie  (JetBrains Junie).
+  --threshold N              Usage percentage ceiling (default: 80). Each phase starts only
+                             when current usage is strictly below this value.
+  --max-errors N             Maximum number of LLM agent command errors before the script
+                             exits (default: 5). Each error pauses for confirmation first.
+  --max-loops N              Maximum number of batch loops to run (default: 25). The
+                             script exits cleanly after this many iterations.
+  --max-files-per-batch N    Maximum number of files per batch (default: 50). Passed to
+                             wiki-create-import-batches.sh when partitioning notes.
+  --help                     Show this help and exit.
 
 Data sources (in order of preference):
   1. Anthropic API  https://api.anthropic.com/api/oauth/usage  (OAuth token
@@ -75,10 +78,11 @@ while [[ $# -gt 0 ]]; do
                 *) echo "Unknown agent: $2 (allowed: claude, junie)" >&2; usage >&2; exit 1 ;;
             esac
             shift 2 ;;
-        --threshold)  THRESHOLD="$2";  shift 2 ;;
-        --max-errors) MAX_ERRORS="$2"; shift 2 ;;
-        --max-loops)  MAX_LOOPS="$2";  shift 2 ;;
-        --help|-h)    usage; exit 0 ;;
+        --threshold)           THRESHOLD="$2";          shift 2 ;;
+        --max-errors)          MAX_ERRORS="$2";         shift 2 ;;
+        --max-loops)           MAX_LOOPS="$2";          shift 2 ;;
+        --max-files-per-batch) MAX_FILES_PER_BATCH="$2"; shift 2 ;;
+        --help|-h)             usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
 done
@@ -287,7 +291,7 @@ BANNER
     echo "  Phase 3  /wiki-finalize-ingest"
     echo ""
     printf "Pauses 30 min if 5-hour usage ≥ %s%%.\n" "$THRESHOLD"
-    printf "Max loops: %s  |  Max errors: %s\n" "$MAX_LOOPS" "$MAX_ERRORS"
+    printf "Max loops: %s  |  Max errors: %s  |  Max files/batch: %s\n" "$MAX_LOOPS" "$MAX_ERRORS" "$MAX_FILES_PER_BATCH"
     echo ""
 }
 
@@ -416,7 +420,7 @@ run_phase_partition() {
     echo "=== Phase 1: partitioning new notes into batches ==="
     echo "Running scripts/wiki-create-import-batches.sh..."
     set +e
-    bash "$PROJECT_DIR/scripts/wiki-create-import-batches.sh"
+    bash "$PROJECT_DIR/scripts/wiki-create-import-batches.sh" --max-files-per-batch "$MAX_FILES_PER_BATCH"
     local rc=$?
     set -e
 
