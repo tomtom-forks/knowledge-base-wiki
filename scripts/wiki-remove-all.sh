@@ -7,7 +7,7 @@ usage() {
   cat <<EOF
 Usage: $(basename "$0") [--force] [--help]
 
-Clears all content from wiki/ and .import/, preserving .gitkeep files.
+Clears all content from raw/-/converted/, wiki/ and .import/, preserving .gitkeep files.
 
 Options:
   --force   Skip confirmation prompt
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [[ "$FORCE" != true ]]; then
-  printf "This will delete all files in wiki/ and .import/ (keeping .gitkeep). Continue? [y/N] "
+  printf "This will delete all files in raw/-/converted/, wiki/ and .import/ (keeping .gitkeep). Continue? [y/N] "
   read -r -n 1 answer
   echo
   if [[ "$answer" != "y" ]]; then
@@ -38,6 +38,7 @@ fi
 
 find "$ROOT/wiki" -mindepth 1 ! -name ".gitkeep" -delete
 find "$ROOT/.import" -mindepth 1 ! -name ".gitkeep" -delete
+find "$ROOT/raw" -name converted -type d -exec "rm" {} \;
 
 echo "Done. wiki/ and .import/ removed."
 
