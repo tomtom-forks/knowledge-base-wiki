@@ -186,10 +186,12 @@ wait_for_capacity() {
     done
 }
 
-# Wait up to TIMEOUT seconds, allowing ESC to cancel the loop.
+# Wait up to TIMEOUT seconds, allowing ESC to cancel or Enter to continue immediately.
+# $1 = timeout in seconds; $2 = label (e.g. "next batch" or "finalize the ingest")
 # Returns 0 to continue, 1 if the user pressed ESC.
 wait_with_cancel() {
     local timeout="$1"
+    local label="${2:-next batch}"
 
     [ -t 0 ] || { sleep "$timeout"; return 0; }
 
@@ -197,14 +199,14 @@ wait_with_cancel() {
     saved_tty=$(stty -g 2>/dev/null) || { sleep "$timeout"; return 0; }
     stty -echo 2>/dev/null
 
-    printf "\n  Pausing %ds before next batch — press ESC to stop the loop.\n" "$timeout"
+    printf "\n  Pausing %ds before %s — press Enter to continue now, ESC to stop.\n" "$timeout" "$label"
 
     local elapsed=0
     local cancelled=false
 
     while [ "$elapsed" -lt "$timeout" ]; do
         local remaining=$(( timeout - elapsed ))
-        printf "\r  Continuing in %2ds  (ESC = stop)" "$remaining"
+        printf "\r  Continuing in %2ds  (Enter = now, ESC = stop)" "$remaining"
 
         local ch
         IFS= read -r -s -n 1 -t 1 ch 2>/dev/null || true
@@ -212,13 +214,15 @@ wait_with_cancel() {
         if [[ "$ch" == $'\x1b' ]]; then
             cancelled=true
             break
+        elif [[ "$ch" == '' || "$ch" == $'\n' || "$ch" == $'\r' ]]; then
+            break
         fi
 
         elapsed=$(( elapsed + 1 ))
     done
 
     stty "$saved_tty" 2>/dev/null
-    printf "\r%60s\r\n" ""
+    printf "\r%80s\r\n" ""
 
     if [ "$cancelled" = true ]; then
         echo "  Loop stopped by user (ESC)."
@@ -466,22 +470,36 @@ run_phase_batches() {
 
         echo "Starting /wiki-ingest-next-batch..."
         if ! run_llm "/wiki-ingest-next-batch"; then
-            echo "ERROR: /wiki-ingest-next-batch failed on batch $iteration.  Time: $(date '+%H:%M:%S')" >&2
+            echo "ERROR: /wiki-ingest-next-batch failed on batch $iteration.  Current time: $(date '+%H:%M:%S')" >&2
             echo "Check $PROJECT_DIR/.import/ for current state." >&2
             confirm_after_error "/wiki-ingest-next-batch (batch $iteration)"
         fi
 
         echo ""
-        local usage_after
-        if usage_after=$(get_usage 2>/dev/null); then
-            local delta=$(( usage_after - usage_before ))
-            local sign=""; [ "$delta" -ge 0 ] && sign="+"
-            echo "Completed batch $iteration of $total.  5-hour usage: ${usage_after}%  (${sign}${delta}%)  Time: $(date '+%H:%M:%S')"
+        echo "────────────────────────────────────────────────────────────────────"
+        if [ "$AGENT" = "claude" ]; then
+            local usage_after
+            if usage_after=$(get_usage 2>/dev/null); then
+                local delta=$(( usage_after - usage_before ))
+                local sign=""; [ "$delta" -ge 0 ] && sign="+"
+                echo "Completed batch $iteration of $total.  5-hour usage: ${usage_after}%  (${sign}${delta}%)  Current time: $(date '+%H:%M:%S')"
+            else
+                echo "Completed batch $iteration of $total.  Current time: $(date '+%H:%M:%S')"
+            fi
         else
-            echo "Completed batch $iteration of $total.  Time: $(date '+%H:%M:%S')"
+            echo "Completed batch $iteration of $total.  Current time: $(date '+%H:%M:%S')"
         fi
 
-        if ! wait_with_cancel 30; then
+        local remaining_after
+        remaining_after=$(count_batch_files)
+        local wait_label
+        if [ "$remaining_after" -eq 0 ]; then
+            wait_label="finalize the ingest"
+        else
+            wait_label="next batch"
+        fi
+
+        if ! wait_with_cancel 60 "$wait_label"; then
             break
         fi
     done
@@ -496,11 +514,11 @@ run_phase_finalize() {
     wait_for_capacity "before /wiki-finalize-ingest" > /dev/null
     echo "Starting /wiki-finalize-ingest..."
     if ! run_llm "/wiki-finalize-ingest"; then
-        echo "ERROR: /wiki-finalize-ingest exited with an error.  Time: $(date '+%H:%M:%S')" >&2
+        echo "ERROR: /wiki-finalize-ingest exited with an error.  Current time: $(date '+%H:%M:%S')" >&2
         confirm_after_error "/wiki-finalize-ingest"
     fi
     echo ""
-    echo "Pipeline complete.  Time: $(date '+%H:%M:%S')"
+    echo "Pipeline complete.  Current time: $(date '+%H:%M:%S')"
 }
 
 main() {

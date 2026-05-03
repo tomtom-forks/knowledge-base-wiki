@@ -50,13 +50,16 @@ These skills commands and natural-language triggers are available:
 
 The `ingest next batch` and `finalize ingest` commands are only needed for importing large amounts of notes. LLM will notify you when you `ingest new notes` and it sees it requires batched importing.
 
-**Pro-tip:** you can also use the script "scripts/wiki-ingest-loop.sh" to start ingesting new notes. The advantage of this script is that it will try to ingest new notes in batches, and wait if your 5h limit has been reached. It will first execute "ingest new notes" followed by as many "ingest next batch" prompts as necessary (up to a specified maximum). Use "--help" for help for this script.
+### Pro-tip: use `wiki-ingest-loop.sh` to ingest multiple files
+
+You can use the script "scripts/wiki-ingest-loop.sh" to start ingesting new notes. The advantage of this script is that it will try to ingest new notes in batches, and wait if your 5h limit has been reached. It will first execute "ingest new notes" followed by as many "ingest next batch" prompts as necessary (up to a specified maximum). Use "--help" for help for this script.
 
 You start it for a specific agent (Claude CLI or Junie CLI), like this
 ```
-scripts/wiki-ingest.loop.sh [--agent claude|junie]    <-- or use --help for more info
+scripts/wiki-ingest.loop.sh [--agent claude|junie]    
 ```
 
+Use `wiki-ingest.loop.sh --help` for more options.
 
 
 ## Getting started
