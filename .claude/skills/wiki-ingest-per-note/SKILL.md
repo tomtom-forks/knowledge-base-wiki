@@ -7,10 +7,10 @@ description: Use when about to process individual notes during wiki ingestion â€
 
 For each file you need to ingest, first use a sub-agent to convert it and any of its attachments if needed:
 - **`.vtt` transcripts** in `raw/transcripts/`:
-  - run `python3 scripts/convert-vtt-to-md.py --new --dir raw/transcripts --output-dir raw/transcripts/converted`.
+  - run `python3 scripts/convert-vtt-to-md.py --input-dir raw/transcripts --output-dir raw/transcripts/converted`.
   - Ingest only `.md` files.
 - **`.eml` emails** in `raw/emails/`:
-  - run `python3 scripts/convert-eml-to-md.py --new --dir raw/emails --output-dir raw/emails/converted`.
+  - run `python3 scripts/convert-eml-to-md.py --input-dir raw/emails --output-dir raw/emails/converted`.
   - Ingest only `.md` files.
 - **pdfs, images, .docx and attachments (files linked from in note)**: for each of these files that is not already markdown:
   1. Check if `<file_dir>/converted/<filename>.md` exists â€” if so, skip.

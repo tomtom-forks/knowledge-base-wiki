@@ -21,17 +21,20 @@ EXAMPLES
   # Convert a single file (renames it with date prefix)
   python3 convert-eml-to-md.py "raw/emails/Some email.eml"
 
-  # Convert all .eml in a directory that don't yet have a .md counterpart
-  python3 convert-eml-to-md.py --dir raw/emails --new
+  # Convert all new .eml in a directory (skips those already converted)
+  python3 convert-eml-to-md.py --input-dir raw/emails
+
+  # Re-convert all .eml including those already converted
+  python3 convert-eml-to-md.py --input-dir raw/emails --force
 
   # Convert all .eml without renaming any files
-  python3 convert-eml-to-md.py --dir raw/emails --no-rename
+  python3 convert-eml-to-md.py --input-dir raw/emails --no-rename
 
   # Write .md files to a different directory
-  python3 convert-eml-to-md.py --dir raw/emails --output-dir raw/emails/converted
+  python3 convert-eml-to-md.py --input-dir raw/emails --output-dir raw/emails/converted
 
   # Dry run — show what would happen without writing anything
-  python3 convert-eml-to-md.py --dir raw/emails --dry-run
+  python3 convert-eml-to-md.py --input-dir raw/emails --dry-run
 """
 
 import argparse
@@ -454,17 +457,20 @@ def build_parser() -> argparse.ArgumentParser:
               # Convert a single file, rename with date prefix
               python3 convert-eml-to-md.py "raw/emails/Meeting notes.eml"
 
-              # Convert all new .eml in a directory (skip those with a .md already)
-              python3 convert-eml-to-md.py --dir raw/emails --new
+              # Convert all new .eml in a directory (skip those already converted)
+              python3 convert-eml-to-md.py --input-dir raw/emails
+
+              # Re-convert all, including those already converted
+              python3 convert-eml-to-md.py --input-dir raw/emails --force
 
               # Batch convert without renaming
-              python3 convert-eml-to-md.py --dir raw/emails --no-rename
+              python3 convert-eml-to-md.py --input-dir raw/emails --no-rename
 
-              # Write new .md files to a different directory
-              python3 convert-eml-to-md.py --dir raw/emails --new --output-dir raw/emails/converted
+              # Write .md files to a different directory
+              python3 convert-eml-to-md.py --input-dir raw/emails --output-dir raw/emails/converted
 
               # Preview what would happen
-              python3 convert-eml-to-md.py --dir raw/emails --dry-run
+              python3 convert-eml-to-md.py --input-dir raw/emails --dry-run
 
             EXIT CODES
               0  all conversions succeeded (or nothing to do)
@@ -478,14 +484,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="one or more .eml files to convert",
     )
     parser.add_argument(
-        "--dir",
+        "--input-dir",
         metavar="DIR",
         help="convert all *.eml files in this directory",
     )
     parser.add_argument(
-        "--new",
+        "--force",
         action="store_true",
-        help="(with --dir) skip .eml files that already have a .md counterpart",
+        help="re-convert .eml files that already have a .md counterpart",
     )
     parser.add_argument(
         "--no-rename",
@@ -522,21 +528,21 @@ def main() -> None:
     # --- collect paths ---
     paths: list[Path] = []
 
-    if args.dir and args.files:
-        print("[WARN] both --dir and explicit files given; using --dir and ignoring explicit files",
+    if args.input_dir and args.files:
+        print("[WARN] both --input-dir and explicit files given; using --input-dir and ignoring explicit files",
               file=sys.stderr)
 
-    if args.dir:
-        d = Path(args.dir)
+    if args.input_dir:
+        d = Path(args.input_dir)
         if not d.exists():
-            print(f"[ERROR] directory not found: {args.dir}", file=sys.stderr)
+            print(f"[ERROR] directory not found: {args.input_dir}", file=sys.stderr)
             sys.exit(1)
         if not d.is_dir():
-            print(f"[ERROR] not a directory: {args.dir}", file=sys.stderr)
+            print(f"[ERROR] not a directory: {args.input_dir}", file=sys.stderr)
             sys.exit(1)
         paths = sorted(d.glob("*.eml"))
         if not paths:
-            print(f"[INFO] no .eml files found in {args.dir}")
+            print(f"[INFO] no .eml files found in {args.input_dir}")
             sys.exit(0)
     elif args.files:
         paths = [Path(f) for f in args.files]
@@ -544,8 +550,8 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
-    # --- apply --new filter ---
-    if args.new:
+    # --- skip already-converted files unless --force ---
+    if not args.force:
         before = len(paths)
         def _md_exists(p: Path) -> bool:
             md_name = sanitize_filename(p.stem) + ".md"
@@ -554,7 +560,7 @@ def main() -> None:
         paths = [p for p in paths if not _md_exists(p)]
         skipped = before - len(paths)
         if skipped:
-            print(f"[INFO] --new: skipping {skipped} file(s) that already have a .md")
+            print(f"[INFO] skipping {skipped} file(s) that already have a .md (use --force to re-convert)")
 
     if not paths:
         print("[INFO] nothing to convert")

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Autonomous wiki ingestion pipeline:
+#   0. Convert raw files to Markdown (VTT transcripts, EML emails).
 #   1. If no batch-import files exist, run scripts/wiki-create-import-batches.sh
 #      directly to partition new notes. If the script exits with code 3
 #      ("nothing to ingest"), the pipeline stops cleanly with exit 0 — no
@@ -9,7 +10,7 @@
 #
 # Pauses 30 minutes whenever the 5-hour Claude usage is at or above the
 # threshold, then retries automatically. Usage tracking is Claude-only;
-# for --agent junie or --agent vibe, get_usage always returns 0 so the
+# for --agent junie, get_usage always returns 0 so the
 # throttling loop is effectively disabled.
 #
 # The 5-hour usage percentage is fetched from the Anthropic API using the
@@ -37,14 +38,13 @@ Usage: $(basename "$0") [--agent AGENT] [--threshold N] [--max-errors N] [--max-
 Autonomous wiki ingestion pipeline. Runs /wiki-ingest (if needed), then loops
 /wiki-ingest-next-batch until all batches are done, then finalizes. Pauses
 30 minutes whenever the 5-hour Claude usage is at or above the threshold.
-Throttling applies only to --agent claude; for junie and vibe, usage is
-reported as 0% (no throttling) since those agents don't expose a quota API.
+Throttling applies only to --agent claude; for junie, usage is reported as
+0% (no throttling) since junie doesn't expose a quota API.
 
 Options:
   --agent AGENT   LLM agent command to use (default: claude).
                   Allowed values: claude (Anthropic Claude),
-                                  junie  (JetBrains Junie),
-                                  vibe   (Mistral Vibe).
+                                  junie  (JetBrains Junie).
   --threshold N   Usage percentage ceiling (default: 80). Each phase starts only
                   when current usage is strictly below this value.
   --max-errors N  Maximum number of LLM agent command errors before the script
@@ -71,8 +71,8 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --agent)
             case "$2" in
-                claude|junie|vibe) AGENT="$2" ;;
-                *) echo "Unknown agent: $2 (allowed: claude, junie, vibe)" >&2; usage >&2; exit 1 ;;
+                claude|junie) AGENT="$2" ;;
+                *) echo "Unknown agent: $2 (allowed: claude, junie)" >&2; usage >&2; exit 1 ;;
             esac
             shift 2 ;;
         --threshold)  THRESHOLD="$2";  shift 2 ;;
@@ -134,8 +134,8 @@ print(int(v))
 }
 
 # Resolve current 5-hour usage %, preferring a fresh API call.
-# Junie and Vibe don't expose a comparable usage endpoint, so we report 0%
-# for them — effectively disabling throttling for those agents.
+# Junie doesn't expose a comparable usage endpoint, so we report 0%
+# for it — effectively disabling throttling for that agent.
 get_usage() {
     if [ "$AGENT" != "claude" ]; then
         echo 0
@@ -239,7 +239,6 @@ run_llm() {
     case "$AGENT" in
         claude) claude --dangerously-skip-permissions --output-format text --print "$prompt" ;;
         junie)  junie --brave --skip-update-check --output-format=text --task "$prompt" ;;
-        vibe)   vibe --output text --trust --prompt "$prompt" ;;
     esac
 }
 
@@ -273,20 +272,11 @@ BANNER
     ╚════╝   ╚═════╝  ╚═╝  ╚═══╝ ╚═╝ ╚══════╝
 BANNER
             ;;
-        vibe)
-            cat <<'BANNER'
-   ██╗   ██╗ ██╗ ██████╗  ███████╗
-   ██║   ██║ ██║ ██╔══██╗ ██╔════╝
-   ██║   ██║ ██║ ██████╔╝ █████╗
-   ╚██╗ ██╔╝ ██║ ██╔══██╗ ██╔══╝
-    ╚████╔╝  ██║ ██████╔╝ ███████╗
-     ╚═══╝   ╚═╝ ╚═════╝  ╚══════╝
-BANNER
-            ;;
     esac
     echo ""
 
     if [ "$needs_ingest" = true ]; then
+        echo "  Phase 0  convert raw files         (VTT transcripts → MD, EML emails → MD)"
         echo "  Phase 1  partition new notes       (wiki-create-import-batches.sh — may exit early if nothing to ingest)"
         echo "  Phase 2  /wiki-ingest-next-batch   (batch count determined after phase 1)"
     else
@@ -380,6 +370,39 @@ confirm_after_error() {
 }
 
 ND_NOTHING_TO_INGEST=3
+
+# Convert raw VTT and EML files to Markdown before partitioning.
+# Errors are non-fatal: a failed conversion is reported but the pipeline continues.
+run_phase_convert() {
+    echo "=== Phase 0: converting raw files to Markdown ==="
+    local scripts_dir="$PROJECT_DIR/scripts"
+    local had_error=false
+
+    echo "Converting VTT transcripts..."
+    set +e
+    python3 "$scripts_dir/convert-vtt-to-md.py" \
+        --input-dir  "$PROJECT_DIR/raw/transcripts" \
+        --output-dir "$PROJECT_DIR/raw/transcripts/converted"
+    local vtt_rc=$?
+    set -e
+    [ "$vtt_rc" -ne 0 ] && { echo "WARN: convert-vtt-to-md.py exited with status $vtt_rc" >&2; had_error=true; }
+
+    echo "Converting EML emails..."
+    set +e
+    python3 "$scripts_dir/convert-eml-to-md.py" \
+        --input-dir  "$PROJECT_DIR/raw/emails" \
+        --output-dir "$PROJECT_DIR/raw/emails/converted"
+    local eml_rc=$?
+    set -e
+    [ "$eml_rc" -ne 0 ] && { echo "WARN: convert-eml-to-md.py exited with status $eml_rc" >&2; had_error=true; }
+
+    echo ""
+    if [ "$had_error" = true ]; then
+        echo "Conversion finished with warnings.  Time: $(date '+%H:%M:%S')"
+    else
+        echo "Conversion complete.  Time: $(date '+%H:%M:%S')"
+    fi
+}
 
 # Run the partition script directly so we can react to its exit code,
 # in particular code 3 ("nothing to ingest") — which lets us skip the
@@ -492,6 +515,8 @@ main() {
     confirm_or_exit
 
     if [ "$needs_ingest" = true ]; then
+        run_phase_convert
+
         set +e
         run_phase_partition
         local partition_rc=$?

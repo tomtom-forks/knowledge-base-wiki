@@ -30,14 +30,17 @@ EXAMPLES
   # Override the date (useful when the filename has no date)
   python3 convert-vtt-to-md.py "raw/transcripts/Meeting.vtt" --date 2026-04-15
 
-  # Convert all .vtt in a directory that don't yet have a .md counterpart
-  python3 convert-vtt-to-md.py --dir raw/transcripts --new
+  # Convert all .vtt in a directory (already-converted files skipped by default)
+  python3 convert-vtt-to-md.py --input-dir raw/transcripts
+
+  # Force reconversion even if .md already exists
+  python3 convert-vtt-to-md.py --input-dir raw/transcripts --force
 
   # Write .md files to a different directory
-  python3 convert-vtt-to-md.py --dir raw/transcripts --output-dir raw/transcripts/converted
+  python3 convert-vtt-to-md.py --input-dir raw/transcripts --output-dir raw/transcripts/converted
 
   # Dry run — show what would happen without writing anything
-  python3 convert-vtt-to-md.py --dir raw/transcripts --dry-run
+  python3 convert-vtt-to-md.py --input-dir raw/transcripts --dry-run
 
   # Omit inline timestamps from the transcript body (timestamps are on by default)
   python3 convert-vtt-to-md.py "raw/transcripts/Meeting.vtt" --no-timestamps
@@ -551,15 +554,18 @@ def build_parser() -> argparse.ArgumentParser:
               • "Speaker Name: text"     Colon-prefix convention (first ≤4 words)
 
             EXAMPLES
-              # Convert single file with a human-readable title
+              # Convert single file with a human-readable title (skipped if .md exists)
               python3 convert-vtt-to-md.py "Meeting.vtt" --title "Q2 Planning"
 
-              # Batch convert new files only, output to wiki
-              python3 convert-vtt-to-md.py --dir raw/transcripts --new \\
+              # Batch convert, output to wiki (already-converted files skipped by default)
+              python3 convert-vtt-to-md.py --input-dir raw/transcripts \\
                       --output-dir raw/transcripts/converted
 
+              # Force reconversion of all files even if .md already exists
+              python3 convert-vtt-to-md.py --input-dir raw/transcripts --force
+
               # Preview without writing
-              python3 convert-vtt-to-md.py --dir raw/transcripts --dry-run
+              python3 convert-vtt-to-md.py --input-dir raw/transcripts --dry-run
 
             EXIT CODES
               0  all conversions succeeded (or nothing to do)
@@ -573,15 +579,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="one or more .vtt files to convert",
     )
     parser.add_argument(
-        "--dir",
+        "--input-dir",
         metavar="DIR",
         help="convert all *.vtt files in this directory",
     )
     parser.add_argument(
-        "--new",
+        "--force",
         action="store_true",
-        help="skip .vtt files that already have a .md counterpart (works with --dir or explicit files)",
+        help="reconvert even if a .md counterpart already exists (default: skip already-converted files)",
     )
+
     parser.add_argument(
         "--no-rename",
         action="store_true",
@@ -665,20 +672,20 @@ def main() -> None:
     # --- collect paths ---
     paths: list[Path] = []
 
-    if args.dir and args.files:
+    if args.input_dir and args.files:
         warn("both --dir and explicit files given; using --dir and ignoring explicit files")
 
-    if args.dir:
-        d = Path(args.dir)
+    if args.input_dir:
+        d = Path(args.input_dir)
         if not d.exists():
-            print(f"[ERROR] directory not found: {args.dir}", file=sys.stderr)
+            print(f"[ERROR] directory not found: {args.input_dir}", file=sys.stderr)
             sys.exit(1)
         if not d.is_dir():
-            print(f"[ERROR] not a directory: {args.dir}", file=sys.stderr)
+            print(f"[ERROR] not a directory: {args.input_dir}", file=sys.stderr)
             sys.exit(1)
         paths = sorted(d.glob("*.vtt"))
         if not paths:
-            print(f"[INFO] no .vtt files found in {args.dir}")
+            print(f"[INFO] no .vtt files found in {args.input_dir}")
             sys.exit(0)
     elif args.files:
         paths = [Path(f) for f in args.files]
@@ -686,8 +693,8 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
-    # --- apply --new filter ---
-    if args.new:
+    # --- skip already-converted files (unless --force) ---
+    if not args.force:
         before = len(paths)
 
         def _md_exists(p: Path) -> bool:
@@ -707,7 +714,7 @@ def main() -> None:
         paths = [p for p in paths if not _md_exists(p)]
         skipped = before - len(paths)
         if skipped:
-            print(f"[INFO] --new: skipping {skipped} file(s) that already have a .md")
+            print(f"[INFO] skipping {skipped} already-converted file(s) (use --force to reconvert)")
 
     if not paths:
         print("[INFO] nothing to convert")

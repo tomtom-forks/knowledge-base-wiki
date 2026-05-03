@@ -9,19 +9,25 @@ description: Use when the user asks to ingest, import, or process one or more no
 
 When asked to "ingest new raw notes" (or similar):
 
-1. **Partition** (run automatically): `bash scripts/wiki-create-import-batches.sh`
+1. **Convert raw files** (run automatically before partitioning):
+   ```bash
+   python3 scripts/convert-vtt-to-md.py --input-dir raw/transcripts --output-dir raw/transcripts/converted
+   python3 scripts/convert-eml-to-md.py --input-dir raw/emails --output-dir raw/emails/converted
+   ```
+   These convert VTT transcript files and EML email files into markdown so they are picked up by the batch importer. Skip silently if the input directories don't exist.
+2. **Partition** (run automatically): `bash scripts/wiki-create-import-batches.sh`
    - Default max batch size is 50 files. Override with `--max-size N` (e.g. `--max-size 20`).
    - This removes any old `.import/batch-import-*.txt` remnants and creates fresh ones.
    - **If the script exits with code 3**: there are no new notes to ingest. Report "Nothing to ingest" and stop.
    - **If the script exits with code 2**: a previous ingest was not completed. Use `AskUserQuestion` to ask the user what to do, with these options:
      - **"Ingest next batch"** — stop here and tell the user: "Use `wiki-ingest-next-batch` (or say `ingest next batch`) in a new session to continue."; do NOT re-run `wiki-create-import-batches.sh`.
-     - **"Abort previous ingestion and restart importing new notes"** — re-run `bash scripts/wiki-create-import-batches.sh --force` to wipe old batches, then continue with this flow from step 2.
+     - **"Abort previous ingestion and restart importing new notes"** — re-run `bash scripts/wiki-create-import-batches.sh --force` to wipe old batches, then continue with this flow from step 3.
      - **"Abort"** — stop immediately and do nothing.
    - Check the exit code explicitly after running the script: `bash scripts/wiki-create-import-batches.sh; echo "EXIT:$?"` and look for `EXIT:2` or `EXIT:3`.
-2. **Check how many batches have content**: count non-empty `.import/batch-import-*.txt` files (the script prints the count).
-   - **If only 1 batch has content**: process it (step 3) and immediately proceed to Finalization — say "Batch done. Say `finalize ingest` (or `/wiki-finalize-ingest`) to wrap up."
-   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more LLM sessions. In each one say: `ingest next batch` (or `/wiki-ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki-finalize-ingest`) here." — then proceed to step 3.
-3. **Process batch 1**: first claim it atomically:
+3. **Check how many batches have content**: count non-empty `.import/batch-import-*.txt` files (the script prints the count).
+   - **If only 1 batch has content**: process it (step 4) and immediately proceed to Finalization — say "Batch done. Say `finalize ingest` (or `/wiki-finalize-ingest`) to wrap up."
+   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more LLM sessions. In each one say: `ingest next batch` (or `/wiki-ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki-finalize-ingest`) here." — then proceed to step 4.
+4. **Process batch 1**: first claim it atomically:
    ```bash
    mv .import/batch-import-1.txt .import/batch-import-1.claimed.txt
    ```
@@ -29,7 +35,7 @@ When asked to "ingest new raw notes" (or similar):
    Each sub-agent prompt must begin with: 
      "Invoke `wiki-ingest-per-note` before processing. Write session logs to `.import/batch-log-1.jsonl`. Then ingest these files: [list]."
    After all sub-agents finish, delete `.import/batch-import-1.claimed.txt`.
-4. **If single-batch**: tell the user to run `finalize ingest`. **If multi-batch**: report notes processed/pages created/updated, then await "finalize ingest".
+5. **If single-batch**: tell the user to run `finalize ingest`. **If multi-batch**: report notes processed/pages created/updated, then await "finalize ingest".
 
 ## Confluence ingestion
 
