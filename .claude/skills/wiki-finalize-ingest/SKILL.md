@@ -5,6 +5,8 @@ description: Use when the user asks to finalize an ingest, merge batch logs, or 
 
 # Knowledge Base - Finalize Ingest
 
+> **When running as an agent** (dispatched by `wiki-ingest`, no user interaction available): at Step 0, abort with an error message if unclaimed batch files exist instead of using `AskUserQuestion`. At Step 5, run All steps without prompting.
+
 ## Step 0 — Check state
 
 Before doing anything, verify there is something to finalize:

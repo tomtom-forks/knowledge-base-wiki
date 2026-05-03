@@ -26,7 +26,7 @@ When asked to "ingest new raw notes" (or similar):
    - Check the exit code explicitly after running the script: `bash scripts/wiki-create-import-batches.sh; echo "EXIT:$?"` and look for `EXIT:2` or `EXIT:3`.
 3. **Check how many batches have content**: count non-empty `.import/batch-import-*.txt` files (the script prints the count).
    - **If only 1 batch has content**: process it (step 4) and immediately proceed to Finalization — say "Batch done. Say `finalize ingest` (or `/wiki-finalize-ingest`) to wrap up."
-   - **If 2+ batches have content**: instruct the user — "Batches ready. Open N more LLM sessions. In each one say: `ingest next batch` (or `/wiki-ingest-next-batch`). I'll start batch 1 now. When all sessions are done, say `finalize ingest` (or `/wiki-finalize-ingest`) here." — then proceed to step 4.
+   - **If 2+ batches have content**: Tell the user — "Batches ready. Open N more sessions and say `ingest next batch` in each one. I'll start batch 1 now. When all sessions are done, come back here." — then proceed to step 4.
 4. **Process batch 1**: first claim it atomically:
    ```bash
    mv .import/batch-import-1.txt .import/batch-import-1.claimed.txt
@@ -35,7 +35,7 @@ When asked to "ingest new raw notes" (or similar):
    Each sub-agent prompt must begin with: 
      "Invoke `wiki-ingest-per-note` before processing. Write session logs to `.import/batch-log-1.jsonl`. Then ingest these files: [list]."
    After all sub-agents finish, delete `.import/batch-import-1.claimed.txt`.
-5. **If single-batch**: tell the user to run `finalize ingest`. **If multi-batch**: report notes processed/pages created/updated, then await "finalize ingest".
+5. After all batch processing is complete (batch 1 done here + all batch agents done): dispatch one `wiki-finalize-ingest` agent. Report the batch summary to the user while the finalize agent runs.
 
 ## Confluence ingestion
 
